@@ -1,0 +1,426 @@
+.kir-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin: 2rem 0;
+    box-sizing: border-box;
+}
+
+.kir-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.kir-card {
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 10px;
+    padding: clamp(1.1rem, 2.3vw, 1.75rem);
+    background: #fff;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.kir-form-card,
+.kir-reader-card {
+    max-width: 760px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.kir-title,
+.kir-reader-title {
+    margin-top: 0;
+    margin-bottom: .75rem;
+}
+
+.kir-intro {
+    margin-bottom: .55rem;
+}
+
+.kir-book-link {
+    margin: 0 0 1.5rem;
+}
+
+.kir-book-link a,
+.kir-reader-open {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.kir-field {
+    margin: 0 0 1.15rem;
+}
+
+.kir-field > label,
+.kir-chapter-fieldset legend {
+    display: block;
+    font-weight: 600;
+    margin-bottom: .35rem;
+}
+
+.kir-chapter-fieldset {
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.kir-field input[type="text"],
+.kir-field input[type="email"],
+.kir-field select {
+    width: 100%;
+    max-width: 100%;
+    min-height: 44px;
+    padding: .55rem .7rem;
+    border: 1px solid #888;
+    border-radius: 4px;
+    background: #fff;
+    box-sizing: border-box;
+    font: inherit;
+}
+
+.kir-field select:disabled,
+.kir-submit:disabled {
+    opacity: .65;
+    cursor: not-allowed;
+}
+
+.kir-congregation-info {
+    margin-top: .35rem;
+    font-size: .92em;
+    opacity: .8;
+}
+
+.kir-chapter-help {
+    margin: 0 0 .55rem;
+    font-size: .92em;
+    opacity: .8;
+}
+
+.kir-chapters {
+    display: grid;
+    gap: .55rem;
+    padding: .55rem;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.015);
+    max-height: 460px;
+    overflow-y: auto;
+    min-width: 0;
+}
+
+.kir-chapters-placeholder {
+    margin: .25rem;
+    opacity: .75;
+}
+
+.kir-chapter-option {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .65rem 1rem;
+    align-items: center;
+    margin: 0;
+    padding: .7rem .75rem;
+    border: 1px solid rgba(0, 0, 0, 0.09);
+    border-radius: 6px;
+    background: #fff;
+    line-height: 1.35;
+    min-width: 0;
+}
+
+.kir-chapter-option:hover {
+    background: rgba(0, 0, 0, 0.025);
+}
+
+.kir-chapter-info {
+    min-width: 0;
+}
+
+.kir-chapter-info strong,
+.kir-chapter-title {
+    display: block;
+}
+
+.kir-chapter-title {
+    margin-top: .08rem;
+}
+
+.kir-chapter-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: .45rem;
+}
+
+.kir-select-control {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    min-height: 38px;
+    padding: .35rem .55rem;
+    border: 1px solid rgba(0, 0, 0, 0.22);
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+
+.kir-select-control input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    flex: 0 0 auto;
+}
+
+
+.kir-chapter-option.is-reserved {
+    opacity: .68;
+}
+
+.kir-chapter-option.is-reserved .kir-select-control {
+    cursor: not-allowed;
+}
+
+
+.kir-privacy {
+    font-size: .9em;
+    margin: .8rem 0 1rem;
+    opacity: .8;
+}
+
+.kir-submit,
+.kir-reader-fullscreen,
+.kir-reader-open {
+    min-height: 44px;
+    box-sizing: border-box;
+}
+
+.kir-submit,
+.kir-reader-fullscreen {
+    padding: .65rem 1rem;
+    cursor: pointer;
+}
+
+.kir-reader-open {
+    display: inline-flex;
+    align-items: center;
+    padding: .55rem .75rem;
+}
+
+.kir-message {
+    margin-top: 1rem;
+    padding: .75rem .9rem;
+    border-radius: 4px;
+    display: none;
+}
+
+.kir-message.is-success,
+.kir-message.is-error {
+    display: block;
+}
+
+.kir-message.is-success {
+    border: 1px solid currentColor;
+}
+
+.kir-message.is-error {
+    border: 1px solid currentColor;
+    font-weight: 600;
+}
+
+.kir-my-selection {
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.025);
+}
+
+.kir-my-selection[hidden] {
+    display: none !important;
+}
+
+.kir-my-selection-title {
+    margin: 0 0 .35rem;
+    font-size: 1.05em;
+}
+
+.kir-my-selection-intro {
+    margin: 0 0 .55rem;
+}
+
+.kir-my-selection-items {
+    margin: .35rem 0 .85rem 1.2rem;
+    padding: 0;
+}
+
+.kir-my-selection-items li + li {
+    margin-top: .2rem;
+}
+
+.kir-cancel-selection {
+    min-height: 40px;
+    padding: .5rem .8rem;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+}
+
+.kir-cancel-selection:hover,
+.kir-cancel-selection:focus-visible {
+    background: rgba(0, 0, 0, 0.055);
+}
+
+.kir-cancel-selection:disabled {
+    opacity: .6;
+    cursor: wait;
+}
+
+.kir-reader-card {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    padding: 1rem;
+    overflow: hidden;
+}
+
+.kir-reader-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    margin-bottom: .75rem;
+    min-width: 0;
+}
+
+.kir-reader-head > div:first-child {
+    min-width: 0;
+}
+
+.kir-reader-title {
+    font-size: 1.25em;
+}
+
+.kir-reader-hint,
+.kir-reader-current {
+    margin: 0;
+    font-size: .9em;
+}
+
+.kir-reader-hint {
+    opacity: .8;
+}
+
+.kir-reader-current:not(:empty) {
+    margin-top: .35rem;
+    font-weight: 600;
+}
+
+.kir-reader-actions {
+    display: flex;
+    gap: .45rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    flex: 0 0 auto;
+}
+
+.kir-reader-frame-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    height: min(82vh, 900px);
+    min-height: 620px;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    background: #f3f3f3;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.kir-reader-frame {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    border: 0;
+    background: #f3f3f3;
+}
+
+.kir-reader-card:fullscreen {
+    width: 100vw;
+    max-width: none;
+    height: 100vh;
+    border: 0;
+    border-radius: 0;
+    padding: 1rem;
+    background: #fff;
+}
+
+.kir-reader-card:fullscreen .kir-reader-frame-wrap {
+    height: calc(100vh - 100px);
+    min-height: 0;
+}
+
+.kir-honeypot {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip: rect(1px, 1px, 1px, 1px) !important;
+    white-space: nowrap !important;
+}
+
+@media (max-width: 900px) {
+    .kir-reader-frame-wrap {
+        height: 72vh;
+        min-height: 520px;
+    }
+}
+
+@media (max-width: 620px) {
+    .kir-chapter-option {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .kir-chapter-actions {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 560px) {
+    .kir-wrap {
+        margin: 1rem 0;
+    }
+
+    .kir-card {
+        padding: 1rem;
+        border-radius: 8px;
+    }
+
+    .kir-reader-head {
+        display: block;
+    }
+
+    .kir-reader-actions {
+        justify-content: flex-start;
+        margin-top: .75rem;
+    }
+
+    .kir-reader-frame-wrap {
+        height: 68vh;
+        min-height: 440px;
+    }
+
+    .kir-chapters {
+        max-height: 400px;
+    }
+}
