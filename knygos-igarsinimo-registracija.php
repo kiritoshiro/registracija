@@ -2,10 +2,11 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 1.7.0
+ * Version: 1.8.0
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
+ * Update URI: https://github.com/kiritoshiro/registracija
  * Text Domain: knygos-igarsinimo-registracija
  */
 
@@ -14,13 +15,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '1.7.0';
+    const VERSION               = '1.8.0';
     const DB_VERSION            = '1.7.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
     const OPTION_DB_VER         = 'kir_db_version';
-    const NONCE_ACTION  = 'kir_public_form';
-    const SHORTCODE     = 'knygos_igarsinimo_registracija';
+    const NONCE_ACTION          = 'kir_public_form';
+    const SHORTCODE             = 'knygos_igarsinimo_registracija';
+    const PLUGIN_SLUG            = 'knygos-igarsinimo-registracija';
+    const GITHUB_REPOSITORY      = 'kiritoshiro/registracija';
+    const RELEASE_TRANSIENT_PREFIX = 'kir_github_latest_release_';
 
     /** @var KIR_Plugin|null */
     private static $instance = null;
@@ -58,6 +62,157 @@ final class KIR_Plugin {
         add_action( 'admin_post_kir_export_xlsx', array( $this, 'handle_export' ) );
         add_action( 'admin_post_kir_update_reservation', array( $this, 'handle_update_reservation' ) );
         add_action( 'admin_post_kir_release_reservation', array( $this, 'handle_release_reservation' ) );
+
+        add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_for_update' ) );
+        add_filter( 'plugins_api', array( $this, 'plugin_information' ), 10, 3 );
+        add_filter( 'upgrader_source_selection', array( $this, 'normalize_update_source' ), 10, 4 );
+    }
+
+    private function plugin_basename() {
+        return plugin_basename( __FILE__ );
+    }
+
+    private function github_release_api_url() {
+        return 'https://api.github.com/repos/' . self::GITHUB_REPOSITORY . '/releases/latest';
+    }
+
+    private function release_transient_key() {
+        return self::RELEASE_TRANSIENT_PREFIX . self::VERSION;
+    }
+
+    private function get_latest_release() {
+        $cached = get_site_transient( $this->release_transient_key() );
+        if ( is_array( $cached ) && ! empty( $cached['version'] ) && ! empty( $cached['zipball_url'] ) ) {
+            return $cached;
+        }
+
+        $response = wp_remote_get(
+            $this->github_release_api_url(),
+            array(
+                'timeout'     => 10,
+                'redirection' => 3,
+                'headers'     => array(
+                    'Accept'     => 'application/vnd.github+json',
+                    'User-Agent' => 'Knygos-igarsinimo-registracija/' . self::VERSION,
+                ),
+            )
+        );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        if ( 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+            return new WP_Error( 'kir_github_release_error', 'GitHub leidimo informacijos gauti nepavyko.' );
+        }
+
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        if ( ! is_array( $body ) ) {
+            return new WP_Error( 'kir_github_release_invalid', 'GitHub grąžino netinkamą leidimo informaciją.' );
+        }
+
+        $tag_name = isset( $body['tag_name'] ) ? sanitize_text_field( $body['tag_name'] ) : '';
+        $version  = preg_replace( '/^v/i', '', $tag_name );
+        $zipball  = isset( $body['zipball_url'] ) ? esc_url_raw( $body['zipball_url'], array( 'https' ) ) : '';
+        $zip_parts = $zipball ? wp_parse_url( $zipball ) : false;
+
+        if ( ! preg_match( '/^\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?$/', $version ) ) {
+            return new WP_Error( 'kir_github_release_version', 'GitHub leidimo versija neatpažinta.' );
+        }
+        if ( ! is_array( $zip_parts ) || 'https' !== ( isset( $zip_parts['scheme'] ) ? strtolower( $zip_parts['scheme'] ) : '' ) || 'api.github.com' !== ( isset( $zip_parts['host'] ) ? strtolower( $zip_parts['host'] ) : '' ) || 0 !== strpos( isset( $zip_parts['path'] ) ? $zip_parts['path'] : '', '/repos/' . self::GITHUB_REPOSITORY . '/zipball/' ) ) {
+            return new WP_Error( 'kir_github_release_package', 'GitHub leidimo paketas neatpažintas.' );
+        }
+
+        $release = array(
+            'version'     => $version,
+            'tag_name'    => $tag_name,
+            'name'        => isset( $body['name'] ) ? sanitize_text_field( $body['name'] ) : $tag_name,
+            'body'        => isset( $body['body'] ) ? wp_kses_post( (string) $body['body'] ) : '',
+            'zipball_url' => $zipball,
+            'html_url'    => isset( $body['html_url'] ) ? esc_url_raw( $body['html_url'], array( 'https' ) ) : '',
+            'published_at'=> isset( $body['published_at'] ) ? sanitize_text_field( $body['published_at'] ) : '',
+        );
+
+        set_site_transient( $this->release_transient_key(), $release, 6 * HOUR_IN_SECONDS );
+        return $release;
+    }
+
+    public function check_for_update( $transient ) {
+        if ( ! is_object( $transient ) || empty( $transient->checked ) ) {
+            return $transient;
+        }
+
+        $plugin_file = $this->plugin_basename();
+        $release     = $this->get_latest_release();
+        if ( is_wp_error( $release ) ) {
+            return $transient;
+        }
+
+        if ( version_compare( $release['version'], self::VERSION, '>' ) ) {
+            if ( ! isset( $transient->response ) || ! is_array( $transient->response ) ) {
+                $transient->response = array();
+            }
+            $transient->response[ $plugin_file ] = (object) array(
+                'id'           => 'github.com/' . self::GITHUB_REPOSITORY,
+                'slug'         => self::PLUGIN_SLUG,
+                'plugin'       => $plugin_file,
+                'new_version'  => $release['version'],
+                'url'           => $release['html_url'],
+                'package'      => $release['zipball_url'],
+                'requires'     => '6.2',
+                'requires_php' => '7.4',
+            );
+        } elseif ( isset( $transient->response[ $plugin_file ] ) ) {
+            unset( $transient->response[ $plugin_file ] );
+        }
+
+        return $transient;
+    }
+
+    public function plugin_information( $result, $action, $args ) {
+        if ( 'plugin_information' !== $action || ! is_object( $args ) || empty( $args->slug ) || self::PLUGIN_SLUG !== sanitize_key( $args->slug ) ) {
+            return $result;
+        }
+
+        $release = $this->get_latest_release();
+        if ( is_wp_error( $release ) ) {
+            return $result;
+        }
+
+        return (object) array(
+            'name'          => 'Knygos įgarsinimo registracija',
+            'slug'          => self::PLUGIN_SLUG,
+            'version'       => $release['version'],
+            'author'        => 'Lithuania Conference',
+            'homepage'      => 'https://github.com/' . self::GITHUB_REPOSITORY,
+            'requires'      => '6.2',
+            'requires_php'  => '7.4',
+            'last_updated'  => $release['published_at'],
+            'download_link' => $release['zipball_url'],
+            'sections'      => array(
+                'description' => 'Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis ir administravimo lentele.',
+                'installation' => 'Atnaujinimą galima įdiegti WordPress administracijos skiltyje „Atnaujinimai“ arba įskiepių puslapyje.',
+                'changelog'   => $release['body'],
+            ),
+        );
+    }
+
+    public function normalize_update_source( $source, $remote_source, $upgrader, $hook_extra ) {
+        if ( is_wp_error( $source ) || ! is_string( $source ) || ! is_string( $remote_source ) || empty( $hook_extra['plugin'] ) || $this->plugin_basename() !== $hook_extra['plugin'] ) {
+            return $source;
+        }
+
+        $expected_source = trailingslashit( $remote_source ) . self::PLUGIN_SLUG;
+        if ( untrailingslashit( $source ) === untrailingslashit( $expected_source ) ) {
+            return $source;
+        }
+
+        global $wp_filesystem;
+        if ( ! $wp_filesystem || ! $wp_filesystem->move( $source, $expected_source ) ) {
+            return new WP_Error( 'kir_update_folder', 'Atnaujinimo paketo aplanko paruošti nepavyko.' );
+        }
+
+        return $expected_source;
     }
 
     public static function activate() {
