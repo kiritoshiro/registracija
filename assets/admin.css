@@ -77,6 +77,11 @@
     max-width: 900px;
 }
 
+.kir-assignments-summary {
+    margin-bottom: 24px;
+    max-width: 900px;
+}
+
 .kir-assignments-table th,
 .kir-assignments-table td {
     vertical-align: middle;

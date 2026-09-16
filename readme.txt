@@ -2,7 +2,7 @@
 Contributors: custom
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 1.9.0
+Stable tag: 2.0.0
 
 Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsinimo registracijai skirtas WordPress įskiepis.
 
@@ -17,6 +17,12 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 7. Naujausi įskiepio atnaujinimai iš GitHub rodomi WordPress administracijos skiltyje „Atnaujinimai“.
 
 
+
+== 2.0.0 ==
+- Pataisytas skyrių priskyrimų išsaugojimas per atskirą administravimo veiksmą.
+- Po išsaugojimo iš naujo apskaičiuojama bendruomenių suvestinė ir viešos formos skyrių sąrašai.
+- Prieš keičiant jau rezervuoto skyriaus bendruomenę parodomas aiškus patvirtinimas su konflikto informacija.
+- Skyrių priskyrimo puslapyje pridėta bendruomenių suvestinė su visais priskirtais skyriais.
 
 == 1.9.0 ==
 - Statuso žymėjimai registracijų sąraše išsaugomi automatiškai juos pakeitus.

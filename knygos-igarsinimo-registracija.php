@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 1.9.0
+ * Version: 2.0.0
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '1.9.0';
+    const VERSION               = '2.0.0';
     const DB_VERSION            = '1.7.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
@@ -61,6 +61,7 @@ final class KIR_Plugin {
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
         add_action( 'admin_post_kir_export_xlsx', array( $this, 'handle_export' ) );
         add_action( 'admin_post_kir_update_reservations', array( $this, 'handle_update_reservations' ) );
+        add_action( 'admin_post_kir_update_assignments', array( $this, 'handle_update_assignments' ) );
         add_action( 'admin_post_kir_release_reservation', array( $this, 'handle_release_reservation' ) );
 
         add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_for_update' ) );
@@ -1148,15 +1149,6 @@ final class KIR_Plugin {
             )
         );
 
-        register_setting(
-            'kir_congregations_group',
-            self::OPTION_CONGREGATIONS,
-            array(
-                'type'              => 'array',
-                'sanitize_callback' => array( $this, 'sanitize_congregation_settings' ),
-                'default'           => self::congregations(),
-            )
-        );
     }
 
     public function sanitize_text_settings( $input ) {
@@ -1354,13 +1346,39 @@ final class KIR_Plugin {
         $by_chapter         = $this->get_congregation_by_chapter( $congregations );
         $congregation_names = array_keys( self::congregations() );
         $chapters           = self::chapter_data();
+        $notice             = isset( $_GET['kir_notice'] ) ? sanitize_key( wp_unslash( $_GET['kir_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
         ?>
         <div class="wrap kir-assignments-page">
             <h1>Skyrių priskyrimas bendruomenėms</h1>
+            <?php if ( 'assignments_updated' === $notice ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Skyrių priskyrimai išsaugoti. Bendruomenių suvestinė ir viešoji forma atnaujintos.</p></div>
+            <?php endif; ?>
             <p>Pasirinkite, kuri bendruomenė įgarsins kiekvieną skyrių. Kiekvienas skyrius turi būti priskirtas vienai bendruomenei.</p>
 
-            <form method="post" action="options.php">
-                <?php settings_fields( 'kir_congregations_group' ); ?>
+            <h2>Bendruomenių suvestinė</h2>
+            <table class="widefat striped kir-assignments-summary">
+                <thead>
+                    <tr>
+                        <th scope="col">Bendruomenė</th>
+                        <th scope="col">Skyrių skaičius</th>
+                        <th scope="col">Priskirti skyriai</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ( $congregations as $name => $assigned_chapters ) : ?>
+                    <tr>
+                        <td><strong><?php echo esc_html( $name ); ?></strong></td>
+                        <td><?php echo esc_html( (string) count( $assigned_chapters ) ); ?></td>
+                        <td><?php echo esc_html( implode( ', ', array_map( 'intval', $assigned_chapters ) ) ); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <h2>Redaguoti skyrių priskyrimą</h2>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <input type="hidden" name="action" value="kir_update_assignments">
+                <?php wp_nonce_field( 'kir_update_assignments' ); ?>
                 <table class="widefat striped kir-assignments-table">
                     <thead>
                         <tr>
@@ -1376,7 +1394,7 @@ final class KIR_Plugin {
                             <td><?php echo esc_html( $chapter_info['title'] ); ?></td>
                             <td>
                                 <label class="screen-reader-text" for="kir-congregation-<?php echo esc_attr( (string) intval( $chapter ) ); ?>">Bendruomenė <?php echo esc_html( (string) intval( $chapter ) ); ?></label>
-                                <select id="kir-congregation-<?php echo esc_attr( (string) intval( $chapter ) ); ?>" class="kir-assignment-select" name="<?php echo esc_attr( self::OPTION_CONGREGATIONS ); ?>[<?php echo esc_attr( (string) intval( $chapter ) ); ?>]">
+                                <select id="kir-congregation-<?php echo esc_attr( (string) intval( $chapter ) ); ?>" class="kir-assignment-select" name="assignments[<?php echo esc_attr( (string) intval( $chapter ) ); ?>]">
                                     <?php foreach ( $congregation_names as $name ) : ?>
                                         <option value="<?php echo esc_attr( $name ); ?>" <?php selected( isset( $by_chapter[ $chapter ] ) ? $by_chapter[ $chapter ] : '', $name ); ?>><?php echo esc_html( $name ); ?></option>
                                     <?php endforeach; ?>
@@ -1458,6 +1476,100 @@ final class KIR_Plugin {
             </form>
         </div>
         <?php
+    }
+
+    private function get_reserved_assignment_rows( $chapters ) {
+        global $wpdb;
+
+        $chapters = array_values( array_unique( array_filter( array_map( 'absint', (array) $chapters ) ) ) );
+        if ( empty( $chapters ) ) {
+            return array();
+        }
+
+        $chapter_list = implode( ',', $chapters );
+        return (array) $wpdb->get_results( "SELECT chapter, congregation, full_name FROM {$this->table_name} WHERE chapter IN ({$chapter_list})", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+    }
+
+    private function get_assignment_conflicts( $current, $proposed ) {
+        $current_by_chapter  = $this->get_congregation_by_chapter( $current );
+        $proposed_by_chapter = $this->get_congregation_by_chapter( $proposed );
+        $changed_chapters    = array();
+
+        foreach ( self::chapter_data() as $chapter => $unused ) {
+            $chapter = (int) $chapter;
+            if ( isset( $current_by_chapter[ $chapter ], $proposed_by_chapter[ $chapter ] ) && $current_by_chapter[ $chapter ] !== $proposed_by_chapter[ $chapter ] ) {
+                $changed_chapters[] = $chapter;
+            }
+        }
+
+        $reserved_rows = $this->get_reserved_assignment_rows( $changed_chapters );
+        $conflicts     = array();
+        foreach ( $reserved_rows as $row ) {
+            $chapter = (int) $row['chapter'];
+            $conflicts[] = array(
+                'chapter'          => $chapter,
+                'full_name'        => (string) $row['full_name'],
+                'old_congregation' => (string) $row['congregation'],
+                'new_congregation' => isset( $proposed_by_chapter[ $chapter ] ) ? $proposed_by_chapter[ $chapter ] : '',
+            );
+        }
+
+        return $conflicts;
+    }
+
+    private function show_assignment_conflict_confirmation( $proposed, $conflicts ) {
+        $proposed_by_chapter = $this->get_congregation_by_chapter( $proposed );
+        $form_action         = admin_url( 'admin-post.php' );
+        $back_url            = admin_url( 'admin.php?page=kir-assignments' );
+        $html                = '<div class="wrap">';
+        $html               .= '<h1>Patvirtinkite priskyrimo pakeitimą</h1>';
+        $html               .= '<div class="notice notice-warning"><p>Šie skyriai jau rezervuoti. Pakeitus priskyrimą, esamos rezervacijos liks išsaugotos, tačiau bendruomenės priskyrimas nebesutaps su senesne registracija.</p></div>';
+        $html               .= '<ul>';
+
+        foreach ( $conflicts as $conflict ) {
+            $html .= '<li><strong>' . esc_html( $conflict['chapter'] . ' skyrius' ) . '</strong> — rezervavo ' . esc_html( $conflict['full_name'] ) . '; dabar: ' . esc_html( $conflict['old_congregation'] ) . '; naujai priskirti: ' . esc_html( $conflict['new_congregation'] ) . '.</li>';
+        }
+
+        $html .= '</ul>';
+        $html .= '<p>Ar tikrai norite išsaugoti šį pakeitimą?</p>';
+        $html .= '<form method="post" action="' . esc_url( $form_action ) . '">';
+        $html .= '<input type="hidden" name="action" value="kir_update_assignments">';
+        $html .= '<input type="hidden" name="confirm_conflicts" value="1">';
+
+        foreach ( self::chapter_data() as $chapter => $unused ) {
+            $chapter = (int) $chapter;
+            if ( isset( $proposed_by_chapter[ $chapter ] ) ) {
+                $html .= '<input type="hidden" name="assignments[' . esc_attr( (string) $chapter ) . ']" value="' . esc_attr( $proposed_by_chapter[ $chapter ] ) . '">';
+            }
+        }
+
+        $html .= wp_nonce_field( 'kir_update_assignments', '_wpnonce', true, false );
+        $html .= '<button type="submit" class="button button-primary">Taip, patvirtinti ir išsaugoti</button> ';
+        $html .= '<a class="button" href="' . esc_url( $back_url ) . '">Atšaukti</a>';
+        $html .= '</form></div>';
+
+        wp_die( $html, 'Patvirtinkite priskyrimo pakeitimą', array( 'response' => 200 ) );
+    }
+
+    public function handle_update_assignments() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Neturite teisės atlikti šio veiksmo.', 'knygos-igarsinimo-registracija' ) );
+        }
+
+        check_admin_referer( 'kir_update_assignments' );
+
+        $input    = isset( $_POST['assignments'] ) && is_array( $_POST['assignments'] ) ? wp_unslash( $_POST['assignments'] ) : array();
+        $current  = $this->get_congregations();
+        $proposed = $this->sanitize_congregation_settings( $input );
+        $conflicts = $this->get_assignment_conflicts( $current, $proposed );
+
+        if ( ! empty( $conflicts ) && empty( $_POST['confirm_conflicts'] ) ) {
+            $this->show_assignment_conflict_confirmation( $proposed, $conflicts );
+        }
+
+        update_option( self::OPTION_CONGREGATIONS, $proposed, false );
+        wp_safe_redirect( admin_url( 'admin.php?page=kir-assignments&kir_notice=assignments_updated' ) );
+        exit;
     }
 
     public function handle_update_reservations() {
