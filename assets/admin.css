@@ -1,0 +1,98 @@
+.kir-status-toggle {
+    align-items: center;
+    cursor: pointer;
+    display: inline-flex;
+    gap: 6px;
+    min-height: 30px;
+    white-space: nowrap;
+}
+
+.kir-status-toggle input[type="checkbox"] {
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    position: absolute;
+    width: 1px;
+}
+
+.kir-status-toggle__box {
+    align-items: center;
+    background: #fff;
+    border: 2px solid #d63638;
+    border-radius: 3px;
+    display: inline-flex;
+    flex: 0 0 18px;
+    height: 18px;
+    justify-content: center;
+    position: relative;
+    width: 18px;
+}
+
+.kir-status-toggle__box::after {
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    content: "";
+    display: none;
+    height: 9px;
+    margin-top: -3px;
+    transform: rotate(45deg);
+    width: 5px;
+}
+
+.kir-status-toggle input[type="checkbox"]:checked + .kir-status-toggle__box {
+    background: #008a20;
+    border-color: #008a20;
+}
+
+.kir-status-toggle input[type="checkbox"]:checked + .kir-status-toggle__box::after {
+    display: block;
+}
+
+.kir-status-toggle input[type="checkbox"]:focus-visible + .kir-status-toggle__box {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #2271b1;
+}
+
+.kir-status-toggle__state {
+    font-weight: 600;
+}
+
+.kir-status-toggle__state--yes {
+    color: #087f23;
+    display: none;
+}
+
+.kir-status-toggle__state--no {
+    color: #b32d2e;
+}
+
+.kir-status-toggle input[type="checkbox"]:checked ~ .kir-status-toggle__state--yes {
+    display: inline;
+}
+
+.kir-status-toggle input[type="checkbox"]:checked ~ .kir-status-toggle__state--no {
+    display: none;
+}
+
+.kir-assignments-table {
+    max-width: 900px;
+}
+
+.kir-assignments-table th,
+.kir-assignments-table td {
+    vertical-align: middle;
+}
+
+.kir-assignment-select {
+    min-width: 220px;
+}
+
+@media screen and (max-width: 782px) {
+    .kir-assignments-table {
+        display: block;
+        overflow-x: auto;
+    }
+
+    .kir-assignment-select {
+        min-width: 190px;
+    }
+}

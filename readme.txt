@@ -2,7 +2,7 @@
 Contributors: custom
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 
 Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsinimo registracijai skirtas WordPress įskiepis.
 
@@ -11,10 +11,17 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 2. Norimame puslapyje įrašykite shortcode:
    [knygos_igarsinimo_registracija]
 3. Administracijoje atidarykite „Įgarsinimo registracijos“.
-4. „Formos tekstai“ skiltyje galima keisti lankytojui rodomus tekstus, veiksmų pavadinimus, knygos puslapio URL ir PDF URL.
-5. Registracijų puslapyje galima matyti visus įrašus, skyriaus pavadinimą, atlaisvinti rezervaciją ir eksportuoti į Excel (.xlsx).
+4. „Skyrių priskyrimas“ skiltyje galima keisti, kuri bendruomenė įgarsins kiekvieną skyrių.
+5. „Formos tekstai“ skiltyje galima keisti lankytojui rodomus tekstus, veiksmų pavadinimus, knygos puslapio URL ir PDF URL.
+6. Registracijų puslapyje galima matyti visus įrašus, pažymėti, ar santrauka išsiųsta ir ar gautas audio, atlaisvinti rezervaciją ir eksportuoti į Excel (.xlsx).
 
 
+
+== 1.7.0 ==
+- Registracijų sąraše pridėti išsaugomi būsenos žymėjimai „Santrauka išsiųsta“ ir „Atsiuntė audio“.
+- Pažymėtos būsenos rodomos žaliai, nepažymėtos – raudonai.
+- Pridėtas administravimo puslapis, kuriame galima keisti bendruomenėms priskirtus skyrius.
+- Santraukos ir audio būsenos įtrauktos į Excel eksportą.
 
 == 1.6.0 ==
 - Pašalintas „Peržiūrėti“ mygtukas prie skyrių.
@@ -96,4 +103,6 @@ Lankytojų skaičius nėra saugomas ir nėra rodomas. Saugomi tik:
 - bendruomenė;
 - pasirinktas skyrius (po vieną DB įrašą kiekvienam rezervuotam skyriui);
 - registracijos data/laikas;
-- anoniminio savarankiško atšaukimo rakto SHA-256 maiša (naujoms registracijoms).
+- anoniminio savarankiško atšaukimo rakto SHA-256 maiša (naujoms registracijoms);
+- ar santrauka išsiųsta;
+- ar gautas audio.
