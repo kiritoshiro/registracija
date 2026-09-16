@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 1.8.0
+ * Version: 1.9.0
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '1.8.0';
+    const VERSION               = '1.9.0';
     const DB_VERSION            = '1.7.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
@@ -60,7 +60,7 @@ final class KIR_Plugin {
         add_action( 'admin_init', array( $this, 'register_settings' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
         add_action( 'admin_post_kir_export_xlsx', array( $this, 'handle_export' ) );
-        add_action( 'admin_post_kir_update_reservation', array( $this, 'handle_update_reservation' ) );
+        add_action( 'admin_post_kir_update_reservations', array( $this, 'handle_update_reservations' ) );
         add_action( 'admin_post_kir_release_reservation', array( $this, 'handle_release_reservation' ) );
 
         add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_for_update' ) );
@@ -589,6 +589,16 @@ final class KIR_Plugin {
             array(),
             self::VERSION
         );
+
+        if ( 'kir-registrations' === $page ) {
+            wp_enqueue_script(
+                'kir-admin',
+                plugins_url( 'assets/admin.js', __FILE__ ),
+                array(),
+                self::VERSION,
+                true
+            );
+        }
     }
 
     private function get_reserved_chapters() {
@@ -1266,6 +1276,14 @@ final class KIR_Plugin {
             </table>
 
             <h2>Registracijų duomenys</h2>
+            <form id="kir-reservation-status-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <input type="hidden" name="action" value="kir_update_reservations">
+                <?php wp_nonce_field( 'kir_update_reservations' ); ?>
+            </form>
+            <p>
+                <button type="submit" form="kir-reservation-status-form" class="button button-primary">Išsaugoti visus pakeitimus</button>
+                <span class="description">Pažymėjimai išsaugomi automatiškai juos pakeitus.</span>
+            </p>
             <table class="widefat striped">
                 <thead>
                     <tr>
@@ -1285,7 +1303,6 @@ final class KIR_Plugin {
                     <tr><td colspan="9">Registracijų dar nėra.</td></tr>
                 <?php else : ?>
                     <?php foreach ( $rows as $row ) : ?>
-                        <?php $update_form_id = 'kir-update-reservation-' . intval( $row->id ); ?>
                         <tr>
                             <td><?php echo esc_html( $row->created_at ); ?></td>
                             <td><?php echo esc_html( $row->full_name ); ?></td>
@@ -1295,7 +1312,8 @@ final class KIR_Plugin {
                             <td><?php echo esc_html( self::chapter_title( intval( $row->chapter ) ) ); ?></td>
                             <td>
                                 <label class="kir-status-toggle">
-                                    <input form="<?php echo esc_attr( $update_form_id ); ?>" type="checkbox" name="summary_sent" value="1" <?php checked( 1, (int) $row->summary_sent ); ?> />
+                                    <input form="kir-reservation-status-form" type="hidden" name="reservations[<?php echo esc_attr( (string) intval( $row->id ) ); ?>][summary_sent]" value="0" />
+                                    <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) intval( $row->id ) ); ?>][summary_sent]" value="1" data-kir-auto-save="1" <?php checked( 1, (int) $row->summary_sent ); ?> />
                                     <span class="kir-status-toggle__box" aria-hidden="true"></span>
                                     <span class="kir-status-toggle__state kir-status-toggle__state--yes">Taip</span>
                                     <span class="kir-status-toggle__state kir-status-toggle__state--no">Ne</span>
@@ -1303,19 +1321,14 @@ final class KIR_Plugin {
                             </td>
                             <td>
                                 <label class="kir-status-toggle">
-                                    <input form="<?php echo esc_attr( $update_form_id ); ?>" type="checkbox" name="audio_sent" value="1" <?php checked( 1, (int) $row->audio_sent ); ?> />
+                                    <input form="kir-reservation-status-form" type="hidden" name="reservations[<?php echo esc_attr( (string) intval( $row->id ) ); ?>][audio_sent]" value="0" />
+                                    <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) intval( $row->id ) ); ?>][audio_sent]" value="1" data-kir-auto-save="1" <?php checked( 1, (int) $row->audio_sent ); ?> />
                                     <span class="kir-status-toggle__box" aria-hidden="true"></span>
                                     <span class="kir-status-toggle__state kir-status-toggle__state--yes">Taip</span>
                                     <span class="kir-status-toggle__state kir-status-toggle__state--no">Ne</span>
                                 </label>
                             </td>
                             <td>
-                                <form id="<?php echo esc_attr( $update_form_id ); ?>" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                                    <input type="hidden" name="action" value="kir_update_reservation">
-                                    <input type="hidden" name="reservation_id" value="<?php echo esc_attr( (string) intval( $row->id ) ); ?>">
-                                    <?php wp_nonce_field( 'kir_update_reservation_' . intval( $row->id ) ); ?>
-                                    <button type="submit" class="button button-small">Išsaugoti</button>
-                                </form>
                                 <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Atlaisvinti šį skyrių?');">
                                     <input type="hidden" name="action" value="kir_release_reservation">
                                     <input type="hidden" name="reservation_id" value="<?php echo esc_attr( (string) intval( $row->id ) ); ?>">
@@ -1447,31 +1460,40 @@ final class KIR_Plugin {
         <?php
     }
 
-    public function handle_update_reservation() {
+    public function handle_update_reservations() {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Neturite teisės atlikti šio veiksmo.', 'knygos-igarsinimo-registracija' ) );
         }
 
-        $id = isset( $_POST['reservation_id'] ) ? absint( $_POST['reservation_id'] ) : 0;
-        if ( ! $id ) {
-            wp_die( esc_html__( 'Neteisingas rezervacijos ID.', 'knygos-igarsinimo-registracija' ) );
-        }
-
-        check_admin_referer( 'kir_update_reservation_' . $id );
+        check_admin_referer( 'kir_update_reservations' );
 
         global $wpdb;
-        $updated = $wpdb->update(
-            $this->table_name,
-            array(
-                'summary_sent' => isset( $_POST['summary_sent'] ) ? 1 : 0,
-                'audio_sent'   => isset( $_POST['audio_sent'] ) ? 1 : 0,
-            ),
-            array( 'id' => $id ),
-            array( '%d', '%d' ),
-            array( '%d' )
-        );
+        $reservations = isset( $_POST['reservations'] ) && is_array( $_POST['reservations'] ) ? wp_unslash( $_POST['reservations'] ) : array();
+        $failed       = false;
 
-        $notice = false === $updated ? 'update_error' : 'updated';
+        foreach ( $reservations as $id => $statuses ) {
+            $id = absint( $id );
+            if ( ! $id || ! is_array( $statuses ) ) {
+                continue;
+            }
+
+            $updated = $wpdb->update(
+                $this->table_name,
+                array(
+                    'summary_sent' => isset( $statuses['summary_sent'] ) && '1' === (string) $statuses['summary_sent'] ? 1 : 0,
+                    'audio_sent'   => isset( $statuses['audio_sent'] ) && '1' === (string) $statuses['audio_sent'] ? 1 : 0,
+                ),
+                array( 'id' => $id ),
+                array( '%d', '%d' ),
+                array( '%d' )
+            );
+
+            if ( false === $updated ) {
+                $failed = true;
+            }
+        }
+
+        $notice = $failed ? 'update_error' : 'updated';
         wp_safe_redirect( admin_url( 'admin.php?page=kir-registrations&kir_notice=' . $notice ) );
         exit;
     }

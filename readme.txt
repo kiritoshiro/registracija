@@ -2,7 +2,7 @@
 Contributors: custom
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 1.8.0
+Stable tag: 1.9.0
 
 Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsinimo registracijai skirtas WordPress įskiepis.
 
@@ -13,10 +13,14 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 3. Administracijoje atidarykite „Įgarsinimo registracijos“.
 4. „Skyrių priskyrimas“ skiltyje galima keisti, kuri bendruomenė įgarsins kiekvieną skyrių.
 5. „Formos tekstai“ skiltyje galima keisti lankytojui rodomus tekstus, veiksmų pavadinimus, knygos puslapio URL ir PDF URL.
-6. Registracijų puslapyje galima matyti visus įrašus, pažymėti, ar santrauka išsiųsta ir ar gautas audio, atlaisvinti rezervaciją ir eksportuoti į Excel (.xlsx).
+6. Registracijų puslapyje galima matyti visus įrašus, pažymėti, ar santrauka išsiųsta ir ar gautas audio, atlaisvinti rezervaciją ir eksportuoti į Excel (.xlsx). Pažymėjimai išsaugomi automatiškai; taip pat yra bendras išsaugojimo mygtukas.
 7. Naujausi įskiepio atnaujinimai iš GitHub rodomi WordPress administracijos skiltyje „Atnaujinimai“.
 
 
+
+== 1.9.0 ==
+- Statuso žymėjimai registracijų sąraše išsaugomi automatiškai juos pakeitus.
+- Vietoje atskirų eilučių mygtukų pridėtas vienas bendras „Išsaugoti visus pakeitimus“ mygtukas.
 
 == 1.8.0 ==
 - Pridėtas automatinis atnaujinimų tikrinimas iš GitHub leidimų.
