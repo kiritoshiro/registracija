@@ -2,7 +2,7 @@
 Contributors: custom
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 2.0.0
+Stable tag: 2.1.0
 
 Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsinimo registracijai skirtas WordPress įskiepis.
 
@@ -15,8 +15,24 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 5. „Formos tekstai“ skiltyje galima keisti lankytojui rodomus tekstus, veiksmų pavadinimus, knygos puslapio URL ir PDF URL.
 6. Registracijų puslapyje galima matyti visus įrašus, pažymėti, ar santrauka išsiųsta ir ar gautas audio, atlaisvinti rezervaciją ir eksportuoti į Excel (.xlsx). Pažymėjimai išsaugomi automatiškai; taip pat yra bendras išsaugojimo mygtukas.
 7. Naujausi įskiepio atnaujinimai iš GitHub rodomi WordPress administracijos skiltyje „Atnaujinimai“.
+8. „Google Sheets“ skiltyje galima prijungti vieną Google Sheets dokumentą per Apps Script Web App. Google prisijungimo WordPress pusėje nereikia; sąrankos kodas pateikiamas `google-apps-script/Code.gs`.
 
 
+
+== Google Sheets sinchronizacija ==
+1. Google Sheets dokumente įkelkite `google-apps-script/Code.gs` turinį per „Extensions → Apps Script“.
+2. Apps Script Script properties sukurkite `KIR_SECRET` tokeną.
+3. Diegkite Apps Script kaip Web app, vykdomą dokumento savininko vardu, su prieiga „Anyone“, ir nukopijuokite `/exec` URL.
+4. WordPress administracijoje atidarykite „Įgarsinimo registracijos → Google Sheets“, įrašykite URL ir tą patį tokeną.
+5. Išsaugokite nustatymus ir vieną kartą paleiskite esamų registracijų sinchronizaciją.
+
+Įskiepis į Google Sheets siunčia naujas registracijas, būsenų pakeitimus, atšaukimus ir administratoriaus atlaisvinimus. Jei Google endpoint laikinai nepasiekiamas, vietinė WordPress registracija vis tiek išsaugoma.
+
+== 2.1.0 ==
+- Pridėta paprasta vienos krypties Google Sheets sinchronizacija per Apps Script Web App.
+- Pridėtas Google Sheets nustatymų puslapis su URL, slaptu tokenu ir pradiniu visų registracijų sinchronizavimu.
+- Naujos registracijos ir administratoriaus būsenų / atlaisvinimo veiksmai automatiškai perduodami į Google Sheets.
+- Pridėtas paruoštas `google-apps-script/Code.gs` ir diegimo aprašas.
 
 == 2.0.0 ==
 - Pataisytas skyrių priskyrimų išsaugojimas per atskirą administravimo veiksmą.

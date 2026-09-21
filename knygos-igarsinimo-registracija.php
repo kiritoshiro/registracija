@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,11 +15,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.0.0';
+    const VERSION               = '2.1.0';
     const DB_VERSION            = '1.7.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
     const OPTION_DB_VER         = 'kir_db_version';
+    const OPTION_GOOGLE_SHEETS  = 'kir_google_sheets';
+    const OPTION_GOOGLE_SHEETS_STATUS = 'kir_google_sheets_status';
     const NONCE_ACTION          = 'kir_public_form';
     const SHORTCODE             = 'knygos_igarsinimo_registracija';
     const PLUGIN_SLUG            = 'knygos-igarsinimo-registracija';
@@ -63,6 +65,7 @@ final class KIR_Plugin {
         add_action( 'admin_post_kir_update_reservations', array( $this, 'handle_update_reservations' ) );
         add_action( 'admin_post_kir_update_assignments', array( $this, 'handle_update_assignments' ) );
         add_action( 'admin_post_kir_release_reservation', array( $this, 'handle_release_reservation' ) );
+        add_action( 'admin_post_kir_sync_google_sheets', array( $this, 'handle_sync_google_sheets' ) );
 
         add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_for_update' ) );
         add_filter( 'plugins_api', array( $this, 'plugin_information' ), 10, 3 );
@@ -561,6 +564,164 @@ final class KIR_Plugin {
         return wp_parse_args( $saved, self::default_texts() );
     }
 
+    private static function default_google_sheets_settings() {
+        return array(
+            'enabled'      => 0,
+            'endpoint_url' => '',
+            'secret'       => '',
+        );
+    }
+
+    private function get_google_sheets_settings() {
+        $saved = get_option( self::OPTION_GOOGLE_SHEETS, array() );
+        if ( ! is_array( $saved ) ) {
+            $saved = array();
+        }
+
+        return wp_parse_args( $saved, self::default_google_sheets_settings() );
+    }
+
+    public function sanitize_google_sheets_settings( $input ) {
+        $current = $this->get_google_sheets_settings();
+        $input   = is_array( $input ) ? $input : array();
+        $secret  = isset( $input['secret'] ) ? sanitize_text_field( wp_unslash( $input['secret'] ) ) : '';
+
+        return array(
+            'enabled'      => ! empty( $input['enabled'] ) ? 1 : 0,
+            'endpoint_url' => isset( $input['endpoint_url'] ) ? esc_url_raw( $input['endpoint_url'], array( 'https' ) ) : '',
+            // Tuščias laukas nekeičia jau išsaugoto tokeno.
+            'secret'       => '' !== $secret ? $secret : (string) $current['secret'],
+        );
+    }
+
+    private function google_sheets_configured() {
+        $settings = $this->get_google_sheets_settings();
+        return ! empty( $settings['enabled'] ) && ! empty( $settings['endpoint_url'] ) && ! empty( $settings['secret'] );
+    }
+
+    private function set_google_sheets_status( $status, $message ) {
+        update_option(
+            self::OPTION_GOOGLE_SHEETS_STATUS,
+            array(
+                'status'  => sanitize_key( $status ),
+                'message' => sanitize_text_field( $message ),
+                'at'      => current_time( 'mysql' ),
+            ),
+            false
+        );
+    }
+
+    private function google_sheets_request( $payload ) {
+        if ( ! $this->google_sheets_configured() ) {
+            return false;
+        }
+
+        $settings          = $this->get_google_sheets_settings();
+        $payload['token']  = (string) $settings['secret'];
+        $encoded_payload   = wp_json_encode( $payload );
+        $response           = wp_remote_post(
+            $settings['endpoint_url'],
+            array(
+                'timeout'     => 5,
+                'redirection' => 3,
+                'headers'     => array(
+                    'Accept'     => 'application/json',
+                    'Content-Type' => 'application/json; charset=utf-8',
+                    'User-Agent' => 'KIR-Google-Sheets/' . self::VERSION,
+                ),
+                'body'        => $encoded_payload,
+                'data_format' => 'body',
+            )
+        );
+
+        if ( is_wp_error( $response ) ) {
+            $this->set_google_sheets_status( 'error', 'Google Sheets sinchronizacija nepavyko: ' . $response->get_error_message() );
+            return false;
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        if ( $code < 200 || $code >= 300 || ! is_array( $body ) || empty( $body['ok'] ) ) {
+            $message = is_array( $body ) && ! empty( $body['message'] ) ? $body['message'] : 'Nežinomas Apps Script atsakymas.';
+            $this->set_google_sheets_status( 'error', 'Google Sheets sinchronizacija nepavyko: ' . $message );
+            return false;
+        }
+
+        $this->set_google_sheets_status( 'success', 'Google Sheets sinchronizacija atlikta.' );
+        return true;
+    }
+
+    private function reservation_to_google_sheet_row( $row ) {
+        $get = static function ( $key ) use ( $row ) {
+            if ( is_object( $row ) && isset( $row->{$key} ) ) {
+                return $row->{$key};
+            }
+            if ( is_array( $row ) && isset( $row[ $key ] ) ) {
+                return $row[ $key ];
+            }
+            return '';
+        };
+
+        $chapter = absint( $get( 'chapter' ) );
+        return array(
+            'id'            => absint( $get( 'id' ) ),
+            'created_at'    => (string) $get( 'created_at' ),
+            'full_name'     => (string) $get( 'full_name' ),
+            'email'         => (string) $get( 'email' ),
+            'congregation'  => (string) $get( 'congregation' ),
+            'chapter'       => $chapter,
+            'chapter_title' => self::chapter_title( $chapter ),
+            'summary_sent'  => ! empty( $get( 'summary_sent' ) ) ? 'Taip' : 'Ne',
+            'audio_sent'    => ! empty( $get( 'audio_sent' ) ) ? 'Taip' : 'Ne',
+            'updated_at'    => current_time( 'mysql' ),
+            'status'        => 'Rezervuota',
+        );
+    }
+
+    private function sync_reservation_ids_to_google_sheets( $ids ) {
+        global $wpdb;
+
+        $ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $ids ) ) ) );
+        if ( empty( $ids ) || ! $this->google_sheets_configured() ) {
+            return false;
+        }
+
+        $id_list = implode( ',', $ids );
+        $rows    = $wpdb->get_results( "SELECT id, created_at, full_name, email, congregation, chapter, summary_sent, audio_sent FROM {$this->table_name} WHERE id IN ({$id_list}) ORDER BY id ASC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $items   = array();
+        foreach ( (array) $rows as $row ) {
+            $items[] = $this->reservation_to_google_sheet_row( $row );
+        }
+
+        return empty( $items ) ? true : $this->google_sheets_request( array( 'action' => 'upsert', 'rows' => $items ) );
+    }
+
+    private function sync_all_reservations_to_google_sheets() {
+        global $wpdb;
+
+        if ( ! $this->google_sheets_configured() ) {
+            $this->set_google_sheets_status( 'error', 'Pirmiausia įrašykite Apps Script URL ir slaptą tokeną.' );
+            return false;
+        }
+
+        $rows  = $wpdb->get_results( "SELECT id, created_at, full_name, email, congregation, chapter, summary_sent, audio_sent FROM {$this->table_name} ORDER BY id ASC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $items = array();
+        foreach ( (array) $rows as $row ) {
+            $items[] = $this->reservation_to_google_sheet_row( $row );
+        }
+
+        return $this->google_sheets_request( array( 'action' => 'upsert', 'rows' => $items ) );
+    }
+
+    private function delete_reservation_ids_from_google_sheets( $ids ) {
+        $ids = array_values( array_unique( array_filter( array_map( 'absint', (array) $ids ) ) ) );
+        if ( empty( $ids ) || ! $this->google_sheets_configured() ) {
+            return false;
+        }
+
+        return $this->google_sheets_request( array( 'action' => 'delete', 'ids' => $ids ) );
+    }
+
     public function register_public_assets() {
         wp_register_style(
             'kir-public',
@@ -919,7 +1080,7 @@ final class KIR_Plugin {
         $hash = $this->owner_token_hash( $token );
         $released_rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT congregation, chapter FROM {$this->table_name} WHERE owner_token_hash = %s ORDER BY chapter ASC",
+                "SELECT id, congregation, chapter FROM {$this->table_name} WHERE owner_token_hash = %s ORDER BY chapter ASC",
                 $hash
             ),
             ARRAY_A
@@ -936,6 +1097,8 @@ final class KIR_Plugin {
         if ( false === $deleted ) {
             wp_send_json_error( array( 'message' => 'Pasirinkimo atšaukti nepavyko. Bandykite dar kartą.' ), 500 );
         }
+
+        $this->delete_reservation_ids_from_google_sheets( wp_list_pluck( (array) $released_rows, 'id' ) );
 
         wp_send_json_success(
             array(
@@ -1058,6 +1221,10 @@ final class KIR_Plugin {
 
         $wpdb->query( 'COMMIT' );
 
+        // Google Sheets ryšys yra papildomas veiksmas: jei jis laikinai nepasiekiamas,
+        // pati WordPress registracija vis tiek lieka sėkminga.
+        $this->sync_reservation_ids_to_google_sheets( $inserted_ids );
+
         $available_now = 0;
         $reserved      = array_flip( $this->get_reserved_chapters() );
         foreach ( $congregations[ $congregation ] as $assigned_chapter ) {
@@ -1136,6 +1303,15 @@ final class KIR_Plugin {
             'kir-assignments',
             array( $this, 'render_admin_assignments' )
         );
+
+        add_submenu_page(
+            'kir-registrations',
+            'Google Sheets',
+            'Google Sheets',
+            'manage_options',
+            'kir-google-sheets',
+            array( $this, 'render_admin_google_sheets' )
+        );
     }
 
     public function register_settings() {
@@ -1146,6 +1322,16 @@ final class KIR_Plugin {
                 'type'              => 'array',
                 'sanitize_callback' => array( $this, 'sanitize_text_settings' ),
                 'default'           => self::default_texts(),
+            )
+        );
+
+        register_setting(
+            'kir_google_sheets_group',
+            self::OPTION_GOOGLE_SHEETS,
+            array(
+                'type'              => 'array',
+                'sanitize_callback' => array( $this, 'sanitize_google_sheets_settings' ),
+                'default'           => self::default_google_sheets_settings(),
             )
         );
 
@@ -1231,6 +1417,7 @@ final class KIR_Plugin {
                 <a class="button button-primary" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=kir_export_xlsx' ), 'kir_export_xlsx' ) ); ?>">Eksportuoti į Excel (.xlsx)</a>
                 <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=kir-texts' ) ); ?>">Redaguoti formos tekstus</a>
                 <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=kir-assignments' ) ); ?>">Redaguoti skyrių priskyrimą</a>
+                <a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=kir-google-sheets' ) ); ?>">Google Sheets nustatymai</a>
             </p>
 
             <h2>Bendruomenių užimtumas</h2>
@@ -1478,6 +1665,79 @@ final class KIR_Plugin {
         <?php
     }
 
+    public function render_admin_google_sheets() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Neturite teisės peržiūrėti šio puslapio.', 'knygos-igarsinimo-registracija' ) );
+        }
+
+        $settings = $this->get_google_sheets_settings();
+        $status   = get_option( self::OPTION_GOOGLE_SHEETS_STATUS, array() );
+        $notice   = isset( $_GET['kir_notice'] ) ? sanitize_key( wp_unslash( $_GET['kir_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        ?>
+        <div class="wrap">
+            <h1>Google Sheets sinchronizacija</h1>
+
+            <?php if ( 'sheets_sync_success' === $notice ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Registracijos išsiųstos į Google Sheets.</p></div>
+            <?php elseif ( 'sheets_sync_error' === $notice ) : ?>
+                <div class="notice notice-error is-dismissible"><p>Registracijų išsiųsti nepavyko. Patikrinkite URL, tokeną ir Apps Script diegimą.</p></div>
+            <?php endif; ?>
+
+            <p>Šis paprastas ryšys siunčia registracijas iš WordPress į vieną Google Sheets dokumentą. Google prisijungimo WordPress pusėje nereikia.</p>
+
+            <form method="post" action="options.php">
+                <?php settings_fields( 'kir_google_sheets_group' ); ?>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                    <tr>
+                        <th scope="row">Įjungti sinchronizaciją</th>
+                        <td>
+                            <label><input type="checkbox" name="<?php echo esc_attr( self::OPTION_GOOGLE_SHEETS ); ?>[enabled]" value="1" <?php checked( 1, (int) $settings['enabled'] ); ?>> Siųsti naujas registracijas ir būsenos pakeitimus</label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="kir-google-sheets-endpoint">Apps Script Web App URL</label></th>
+                        <td>
+                            <input class="large-text" type="url" id="kir-google-sheets-endpoint" name="<?php echo esc_attr( self::OPTION_GOOGLE_SHEETS ); ?>[endpoint_url]" value="<?php echo esc_attr( $settings['endpoint_url'] ); ?>" placeholder="https://script.google.com/macros/s/.../exec">
+                            <p class="description">Naudokite diegimo URL, kuris baigiasi <code>/exec</code>.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="kir-google-sheets-secret">Slaptas tokenas</label></th>
+                        <td>
+                            <input class="regular-text" type="password" id="kir-google-sheets-secret" name="<?php echo esc_attr( self::OPTION_GOOGLE_SHEETS ); ?>[secret]" value="" autocomplete="new-password" placeholder="Palikite tuščią, jei nekeičiate">
+                            <p class="description"><?php echo ! empty( $settings['secret'] ) ? 'Tokenas išsaugotas. Įveskite naują tik norėdami jį pakeisti.' : 'Naudokite ilgą atsitiktinį tekstą ir tokį patį įrašykite Apps Script nustatymuose.'; ?></p>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+                <?php submit_button( 'Išsaugoti Google Sheets nustatymus' ); ?>
+            </form>
+
+            <h2>Esamų registracijų sinchronizavimas</h2>
+            <p>Po pirmojo nustatymo paspauskite šį mygtuką, kad į dokumentą būtų išsiųstos visos jau esančios registracijos.</p>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <input type="hidden" name="action" value="kir_sync_google_sheets">
+                <?php wp_nonce_field( 'kir_sync_google_sheets' ); ?>
+                <button type="submit" class="button button-primary" <?php disabled( ! $this->google_sheets_configured() ); ?>>Sinchronizuoti visas registracijas dabar</button>
+            </form>
+
+            <?php if ( is_array( $status ) && ! empty( $status['at'] ) ) : ?>
+                <p class="description">Paskutinis bandymas: <?php echo esc_html( $status['at'] ); ?> — <?php echo esc_html( $status['message'] ); ?></p>
+            <?php endif; ?>
+
+            <h2>Greita sąranka</h2>
+            <ol>
+                <li>Google Drive sukurkite Google Sheets dokumentą ir atidarykite <strong>Extensions → Apps Script</strong>.</li>
+                <li>Įkelkite įskiepio aplanke esantį failą <code>google-apps-script/Code.gs</code>.</li>
+                <li>Apps Script nustatymuose sukurkite Script property <code>KIR_SECRET</code> su tuo pačiu tokenu.</li>
+                <li>Deploy → New deployment → Web app; vykdyti kaip save, prieiga <strong>Anyone</strong>; nukopijuokite <code>/exec</code> URL čia.</li>
+                <li>Išsaugokite nustatymus ir vieną kartą paleiskite visų registracijų sinchronizaciją.</li>
+            </ol>
+        </div>
+        <?php
+    }
+
     private function get_reserved_assignment_rows( $chapters ) {
         global $wpdb;
 
@@ -1487,7 +1747,7 @@ final class KIR_Plugin {
         }
 
         $chapter_list = implode( ',', $chapters );
-        return (array) $wpdb->get_results( "SELECT chapter, congregation, full_name FROM {$this->table_name} WHERE chapter IN ({$chapter_list})", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        return (array) $wpdb->get_results( "SELECT id, chapter, congregation, full_name FROM {$this->table_name} WHERE chapter IN ({$chapter_list})", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
     }
 
     private function get_assignment_conflicts( $current, $proposed ) {
@@ -1507,6 +1767,7 @@ final class KIR_Plugin {
         foreach ( $reserved_rows as $row ) {
             $chapter = (int) $row['chapter'];
             $conflicts[] = array(
+                'id'               => absint( $row['id'] ),
                 'chapter'          => $chapter,
                 'full_name'        => (string) $row['full_name'],
                 'old_congregation' => (string) $row['congregation'],
@@ -1551,6 +1812,18 @@ final class KIR_Plugin {
         wp_die( $html, 'Patvirtinkite priskyrimo pakeitimą', array( 'response' => 200 ) );
     }
 
+    public function handle_sync_google_sheets() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Neturite teisės atlikti šio veiksmo.', 'knygos-igarsinimo-registracija' ) );
+        }
+
+        check_admin_referer( 'kir_sync_google_sheets' );
+
+        $success = $this->sync_all_reservations_to_google_sheets();
+        wp_safe_redirect( admin_url( 'admin.php?page=kir-google-sheets&kir_notice=' . ( $success ? 'sheets_sync_success' : 'sheets_sync_error' ) ) );
+        exit;
+    }
+
     public function handle_update_assignments() {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Neturite teisės atlikti šio veiksmo.', 'knygos-igarsinimo-registracija' ) );
@@ -1568,6 +1841,7 @@ final class KIR_Plugin {
         }
 
         update_option( self::OPTION_CONGREGATIONS, $proposed, false );
+        $this->sync_reservation_ids_to_google_sheets( wp_list_pluck( $conflicts, 'id' ) );
         wp_safe_redirect( admin_url( 'admin.php?page=kir-assignments&kir_notice=assignments_updated' ) );
         exit;
     }
@@ -1582,6 +1856,7 @@ final class KIR_Plugin {
         global $wpdb;
         $reservations = isset( $_POST['reservations'] ) && is_array( $_POST['reservations'] ) ? wp_unslash( $_POST['reservations'] ) : array();
         $failed       = false;
+        $updated_ids  = array();
 
         foreach ( $reservations as $id => $statuses ) {
             $id = absint( $id );
@@ -1602,8 +1877,12 @@ final class KIR_Plugin {
 
             if ( false === $updated ) {
                 $failed = true;
+            } else {
+                $updated_ids[] = $id;
             }
         }
+
+        $this->sync_reservation_ids_to_google_sheets( $updated_ids );
 
         $notice = $failed ? 'update_error' : 'updated';
         wp_safe_redirect( admin_url( 'admin.php?page=kir-registrations&kir_notice=' . $notice ) );
@@ -1623,7 +1902,14 @@ final class KIR_Plugin {
         check_admin_referer( 'kir_release_reservation_' . $id );
 
         global $wpdb;
+        $reservation_exists = (bool) $wpdb->get_var(
+            $wpdb->prepare( "SELECT id FROM {$this->table_name} WHERE id = %d LIMIT 1", $id )
+        );
         $wpdb->delete( $this->table_name, array( 'id' => $id ), array( '%d' ) );
+
+        if ( $reservation_exists ) {
+            $this->delete_reservation_ids_from_google_sheets( array( $id ) );
+        }
 
         wp_safe_redirect( admin_url( 'admin.php?page=kir-registrations&kir_notice=released' ) );
         exit;
