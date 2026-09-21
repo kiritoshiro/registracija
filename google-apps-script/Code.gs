@@ -39,12 +39,14 @@ function doPost(e) {
       rows.forEach(function (row) {
         upsertRow_(sheet, row);
       });
+      ensureTableFilter_(sheet);
       return jsonResponse_(true, 'Eilutės išsaugotos.', rows.length);
     }
 
     if (request.action === 'delete') {
       const ids = Array.isArray(request.ids) ? request.ids : [];
       deleteRows_(sheet, ids);
+      ensureTableFilter_(sheet);
       return jsonResponse_(true, 'Eilutės pašalintos.', ids.length);
     }
 
@@ -80,14 +82,56 @@ function ensureHeaders_(sheet) {
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
     sheet.setFrozenRows(1);
+  } else {
+    const current = sheet.getRange(1, 1, 1, HEADERS.length).getValues()[0];
+    if (current.join('\u0001') !== HEADERS.join('\u0001')) {
+      sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+      sheet.setFrozenRows(1);
+    }
+  }
+
+  ensureTableFilter_(sheet);
+}
+
+function ensureTableFilter_(sheet) {
+  const requiredColumns = HEADERS.length;
+  const requiredRows = Math.max(sheet.getMaxRows(), sheet.getLastRow(), 2);
+  const currentFilter = sheet.getFilter();
+
+  if (currentFilter) {
+    const currentRange = currentFilter.getRange();
+    if (
+      currentRange.getRow() === 1 &&
+      currentRange.getColumn() === 1 &&
+      currentRange.getNumColumns() === requiredColumns &&
+      currentRange.getNumRows() === requiredRows
+    ) {
+      return;
+    }
+
+    // Keep existing column criteria when expanding an older A:F filter to A:K.
+    const criteria = [];
+    const criteriaColumns = Math.min(currentRange.getNumColumns(), requiredColumns);
+    for (let column = 1; column <= criteriaColumns; column += 1) {
+      criteria[column] = currentFilter.getColumnFilterCriteria(column);
+    }
+    currentFilter.remove();
+
+    const expandedFilter = sheet.getRange(1, 1, requiredRows, requiredColumns).createFilter();
+    for (let column = 1; column <= criteriaColumns; column += 1) {
+      if (criteria[column]) {
+        try {
+          expandedFilter.setColumnFilterCriteria(column, criteria[column]);
+        } catch (error) {
+          // An incompatible old criterion should not prevent the table filter
+          // from covering all columns.
+        }
+      }
+    }
     return;
   }
 
-  const current = sheet.getRange(1, 1, 1, HEADERS.length).getValues()[0];
-  if (current.join('\u0001') !== HEADERS.join('\u0001')) {
-    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
-    sheet.setFrozenRows(1);
-  }
+  sheet.getRange(1, 1, requiredRows, requiredColumns).createFilter();
 }
 
 function upsertRow_(sheet, row) {
