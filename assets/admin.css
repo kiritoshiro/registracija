@@ -73,6 +73,57 @@
     display: none;
 }
 
+.kir-registrations-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.kir-registrations-table {
+    min-width: 1320px;
+}
+
+.kir-registrations-table th,
+.kir-registrations-table td {
+    vertical-align: top;
+}
+
+.kir-sort-link {
+    align-items: center;
+    display: inline-flex;
+    min-height: 30px;
+}
+
+.kir-registration-edit {
+    box-sizing: border-box;
+    max-width: 100%;
+    width: 100%;
+}
+
+.kir-registration-edit--date {
+    min-width: 165px;
+}
+
+.kir-registration-edit--name {
+    min-width: 180px;
+}
+
+.kir-registration-edit--email {
+    min-width: 220px;
+}
+
+.kir-registration-edit--community {
+    min-width: 150px;
+}
+
+.kir-registration-edit--chapter {
+    min-width: 250px;
+}
+
+.kir-registration-derived {
+    display: block;
+    margin-top: 6px;
+}
+
 .kir-assignments-table {
     max-width: 900px;
 }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.1.1
+ * Version: 2.2.0
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.1.1';
+    const VERSION               = '2.2.0';
     const DB_VERSION            = '1.7.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
@@ -1384,6 +1384,69 @@ final class KIR_Plugin {
         return $clean;
     }
 
+    private function admin_registration_sort_url( $key, $sort_key, $sort_order ) {
+        $next_order = ( $key === $sort_key && 'ASC' === $sort_order ) ? 'DESC' : 'ASC';
+        return add_query_arg(
+            array(
+                'page'    => 'kir-registrations',
+                'orderby' => $key,
+                'order'   => strtolower( $next_order ),
+            ),
+            admin_url( 'admin.php' )
+        );
+    }
+
+    private function normalize_admin_datetime( $value ) {
+        $value = trim( (string) $value );
+        if ( '' === $value ) {
+            return false;
+        }
+
+        $formats = array( 'Y-m-d\\TH:i:s', 'Y-m-d\\TH:i', 'Y-m-d H:i:s', 'Y-m-d H:i' );
+        foreach ( $formats as $format ) {
+            $date = DateTime::createFromFormat( $format, $value );
+            $errors = DateTime::getLastErrors();
+            if ( $date instanceof DateTime && ( false === $errors || ( 0 === (int) $errors['warning_count'] && 0 === (int) $errors['error_count'] ) ) ) {
+                return $date->format( 'Y-m-d H:i:s' );
+            }
+        }
+
+        return false;
+    }
+
+    private function show_reservation_conflict_confirmation( $updates, $conflicts ) {
+        $form_action = admin_url( 'admin-post.php' );
+        $back_url    = admin_url( 'admin.php?page=kir-registrations' );
+        $html        = '<div class="wrap">';
+        $html       .= '<h1>Patvirtinkite registracijos pakeitimą</h1>';
+        $html       .= '<div class="notice notice-warning"><p>Keičiate jau rezervuoto skyriaus bendruomenę arba skyrių. Tai pakeis esamos rezervacijos duomenis ir bus perduota į Google Sheets, jei sinchronizacija įjungta.</p></div>';
+        $html       .= '<ul>';
+
+        foreach ( $conflicts as $conflict ) {
+            $html .= '<li><strong>' . esc_html( $conflict['full_name'] ) . '</strong> — dabar: ' . esc_html( $conflict['old_congregation'] . ', ' . $conflict['old_chapter'] . ' skyrius' ) . '; naujai: ' . esc_html( $conflict['new_congregation'] . ', ' . $conflict['new_chapter'] . ' skyrius' ) . '.</li>';
+        }
+
+        $html .= '</ul>';
+        $html .= '<p>Ar tikrai norite išsaugoti šį pakeitimą?</p>';
+        $html .= '<form method="post" action="' . esc_url( $form_action ) . '">';
+        $html .= '<input type="hidden" name="action" value="kir_update_reservations">';
+        $html .= '<input type="hidden" name="confirm_conflicts" value="1">';
+
+        foreach ( $updates as $update ) {
+            $id = (int) $update['id'];
+            foreach ( $update['fields'] as $field => $value ) {
+                $html .= '<input type="hidden" name="reservations[' . esc_attr( (string) $id ) . '][' . esc_attr( $field ) . ']" value="' . esc_attr( (string) $value ) . '">';
+            }
+        }
+
+        $html .= wp_nonce_field( 'kir_update_reservations', '_wpnonce', true, false );
+        $html .= '<button type="submit" class="button button-primary">Taip, patvirtinti ir išsaugoti</button> ';
+        $html .= '<a class="button" href="' . esc_url( $back_url ) . '">Atšaukti</a>';
+        $html .= '</form></div>';
+
+        wp_die( $html, 'Patvirtinkite registracijos pakeitimą', array( 'response' => 200 ) );
+    }
+
     public function render_admin_registrations() {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Neturite teisės peržiūrėti šio puslapio.', 'knygos-igarsinimo-registracija' ) );
@@ -1391,8 +1454,22 @@ final class KIR_Plugin {
 
         global $wpdb;
         $texts         = $this->get_texts();
-        $rows          = $wpdb->get_results( "SELECT id, full_name, email, congregation, chapter, created_at, summary_sent, audio_sent FROM {$this->table_name} ORDER BY chapter ASC" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $sort_columns  = array(
+            'created_at'  => 'created_at',
+            'full_name'   => 'full_name',
+            'email'       => 'email',
+            'congregation'=> 'congregation',
+            'chapter'     => 'chapter',
+            'summary_sent'=> 'summary_sent',
+            'audio_sent'  => 'audio_sent',
+        );
+        $sort_key      = isset( $_GET['orderby'] ) ? sanitize_key( wp_unslash( $_GET['orderby'] ) ) : 'created_at'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        $sort_key      = isset( $sort_columns[ $sort_key ] ) ? $sort_key : 'created_at';
+        $sort_order    = isset( $_GET['order'] ) && 'asc' === strtolower( sanitize_key( wp_unslash( $_GET['order'] ) ) ) ? 'ASC' : 'DESC'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        $order_sql     = $sort_columns[ $sort_key ] . ' ' . $sort_order;
+        $rows          = $wpdb->get_results( "SELECT id, full_name, email, congregation, chapter, created_at, summary_sent, audio_sent FROM {$this->table_name} ORDER BY {$order_sql}, id DESC" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
         $congregations = $this->get_congregations();
+        $chapter_data  = self::chapter_data();
         $reserved      = array_flip( $this->get_reserved_chapters() );
 
         $notice = isset( $_GET['kir_notice'] ) ? sanitize_key( wp_unslash( $_GET['kir_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
@@ -1404,10 +1481,10 @@ final class KIR_Plugin {
                 <div class="notice notice-success is-dismissible"><p>Rezervacija pašalinta, skyrius vėl laisvas.</p></div>
             <?php endif; ?>
             <?php if ( 'updated' === $notice ) : ?>
-                <div class="notice notice-success is-dismissible"><p>Registracijos būsena išsaugota.</p></div>
+                <div class="notice notice-success is-dismissible"><p>Registracijos duomenys išsaugoti.</p></div>
             <?php endif; ?>
             <?php if ( 'update_error' === $notice ) : ?>
-                <div class="notice notice-error is-dismissible"><p>Registracijos būsenos išsaugoti nepavyko.</p></div>
+                <div class="notice notice-error is-dismissible"><p>Registracijos duomenų išsaugoti nepavyko.</p></div>
             <?php endif; ?>
 
             <p>Formą į puslapį įdėkite naudodami shortcode:</p>
@@ -1461,65 +1538,87 @@ final class KIR_Plugin {
             </form>
             <p>
                 <button type="submit" form="kir-reservation-status-form" class="button button-primary">Išsaugoti visus pakeitimus</button>
-                <span class="description">Pažymėjimai išsaugomi automatiškai juos pakeitus.</span>
+                <span class="description">Pažymėjimai išsaugomi automatiškai juos pakeitus. Vardą, el. paštą ir kitus laukus išsaugokite šiuo mygtuku.</span>
             </p>
-            <table class="widefat striped">
-                <thead>
-                    <tr>
-                        <th>Data</th>
-                        <th>Vardas ir pavardė</th>
-                        <th>El. paštas</th>
-                        <th>Bendruomenė</th>
-                        <th>Skyrius</th>
-                        <th>Pavadinimas</th>
-                        <th>Santrauka išsiųsta</th>
-                        <th>Atsiuntė audio</th>
-                        <th>Veiksmas</th>
-                    </tr>
-                </thead>
-                <tbody>
-                <?php if ( empty( $rows ) ) : ?>
-                    <tr><td colspan="9">Registracijų dar nėra.</td></tr>
-                <?php else : ?>
-                    <?php foreach ( $rows as $row ) : ?>
+            <div class="kir-registrations-table-wrap">
+                <table class="widefat striped kir-registrations-table">
+                    <thead>
                         <tr>
-                            <td><?php echo esc_html( $row->created_at ); ?></td>
-                            <td><?php echo esc_html( $row->full_name ); ?></td>
-                            <td><a href="mailto:<?php echo esc_attr( $row->email ); ?>"><?php echo esc_html( $row->email ); ?></a></td>
-                            <td><?php echo esc_html( $row->congregation ); ?></td>
-                            <td><strong><?php echo esc_html( (string) intval( $row->chapter ) ); ?></strong></td>
-                            <td><?php echo esc_html( self::chapter_title( intval( $row->chapter ) ) ); ?></td>
-                            <td>
-                                <label class="kir-status-toggle">
-                                    <input form="kir-reservation-status-form" type="hidden" name="reservations[<?php echo esc_attr( (string) intval( $row->id ) ); ?>][summary_sent]" value="0" />
-                                    <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) intval( $row->id ) ); ?>][summary_sent]" value="1" data-kir-auto-save="1" <?php checked( 1, (int) $row->summary_sent ); ?> />
-                                    <span class="kir-status-toggle__box" aria-hidden="true"></span>
-                                    <span class="kir-status-toggle__state kir-status-toggle__state--yes">Taip</span>
-                                    <span class="kir-status-toggle__state kir-status-toggle__state--no">Ne</span>
-                                </label>
-                            </td>
-                            <td>
-                                <label class="kir-status-toggle">
-                                    <input form="kir-reservation-status-form" type="hidden" name="reservations[<?php echo esc_attr( (string) intval( $row->id ) ); ?>][audio_sent]" value="0" />
-                                    <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) intval( $row->id ) ); ?>][audio_sent]" value="1" data-kir-auto-save="1" <?php checked( 1, (int) $row->audio_sent ); ?> />
-                                    <span class="kir-status-toggle__box" aria-hidden="true"></span>
-                                    <span class="kir-status-toggle__state kir-status-toggle__state--yes">Taip</span>
-                                    <span class="kir-status-toggle__state kir-status-toggle__state--no">Ne</span>
-                                </label>
-                            </td>
-                            <td>
-                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Atlaisvinti šį skyrių?');">
-                                    <input type="hidden" name="action" value="kir_release_reservation">
-                                    <input type="hidden" name="reservation_id" value="<?php echo esc_attr( (string) intval( $row->id ) ); ?>">
-                                    <?php wp_nonce_field( 'kir_release_reservation_' . intval( $row->id ) ); ?>
-                                    <button type="submit" class="button button-small">Atlaisvinti</button>
-                                </form>
-                            </td>
+                            <th scope="col" <?php echo 'created_at' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'created_at', $sort_key, $sort_order ) ); ?>">Data <span class="screen-reader-text">rikiuoti</span></a></th>
+                            <th scope="col" <?php echo 'full_name' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'full_name', $sort_key, $sort_order ) ); ?>">Vardas ir pavardė</a></th>
+                            <th scope="col" <?php echo 'email' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'email', $sort_key, $sort_order ) ); ?>">El. paštas</a></th>
+                            <th scope="col" <?php echo 'congregation' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'congregation', $sort_key, $sort_order ) ); ?>">Bendruomenė</a></th>
+                            <th scope="col" <?php echo 'chapter' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'chapter', $sort_key, $sort_order ) ); ?>">Skyrius</a></th>
+                            <th scope="col">Pavadinimas</th>
+                            <th scope="col" <?php echo 'summary_sent' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'summary_sent', $sort_key, $sort_order ) ); ?>">Santrauka išsiųsta</a></th>
+                            <th scope="col" <?php echo 'audio_sent' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'audio_sent', $sort_key, $sort_order ) ); ?>">Atsiuntė audio</a></th>
+                            <th scope="col">Veiksmas</th>
                         </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                    <?php if ( empty( $rows ) ) : ?>
+                        <tr><td colspan="9">Registracijų dar nėra.</td></tr>
+                    <?php else : ?>
+                        <?php foreach ( $rows as $row ) : ?>
+                            <?php $id = (int) $row->id; ?>
+                            <tr>
+                                <td>
+                                    <input form="kir-reservation-status-form" class="kir-registration-edit kir-registration-edit--date" type="datetime-local" step="1" name="reservations[<?php echo esc_attr( (string) $id ); ?>][created_at]" value="<?php echo esc_attr( str_replace( ' ', 'T', substr( (string) $row->created_at, 0, 19 ) ) ); ?>" aria-label="Data pridėjimo" />
+                                </td>
+                                <td>
+                                    <input form="kir-reservation-status-form" class="kir-registration-edit kir-registration-edit--name" type="text" name="reservations[<?php echo esc_attr( (string) $id ); ?>][full_name]" value="<?php echo esc_attr( $row->full_name ); ?>" maxlength="190" aria-label="Vardas ir pavardė" />
+                                </td>
+                                <td>
+                                    <input form="kir-reservation-status-form" class="kir-registration-edit kir-registration-edit--email" type="email" name="reservations[<?php echo esc_attr( (string) $id ); ?>][email]" value="<?php echo esc_attr( $row->email ); ?>" maxlength="190" aria-label="El. paštas" />
+                                </td>
+                                <td>
+                                    <select form="kir-reservation-status-form" class="kir-registration-edit kir-registration-edit--community" name="reservations[<?php echo esc_attr( (string) $id ); ?>][congregation]" aria-label="Bendruomenė">
+                                        <?php foreach ( array_keys( $congregations ) as $congregation_name ) : ?>
+                                            <option value="<?php echo esc_attr( $congregation_name ); ?>" <?php selected( $row->congregation, $congregation_name ); ?>><?php echo esc_html( $congregation_name ); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                                <td>
+                                    <select form="kir-reservation-status-form" class="kir-registration-edit kir-registration-edit--chapter" name="reservations[<?php echo esc_attr( (string) $id ); ?>][chapter]" aria-label="Skyrius">
+                                        <?php foreach ( $chapter_data as $chapter_number => $chapter ) : ?>
+                                            <option value="<?php echo esc_attr( (string) $chapter_number ); ?>" <?php selected( (int) $row->chapter, (int) $chapter_number ); ?>><?php echo esc_html( $chapter_number . ' – ' . $chapter['title'] ); ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                                <td><?php echo esc_html( self::chapter_title( (int) $row->chapter ) ); ?><span class="description kir-registration-derived">automatiškai pagal skyrių</span></td>
+                                <td>
+                                    <label class="kir-status-toggle">
+                                        <input form="kir-reservation-status-form" type="hidden" name="reservations[<?php echo esc_attr( (string) $id ); ?>][summary_sent]" value="0" />
+                                        <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) $id ); ?>][summary_sent]" value="1" data-kir-auto-save="1" <?php checked( 1, (int) $row->summary_sent ); ?> />
+                                        <span class="kir-status-toggle__box" aria-hidden="true"></span>
+                                        <span class="kir-status-toggle__state kir-status-toggle__state--yes">Taip</span>
+                                        <span class="kir-status-toggle__state kir-status-toggle__state--no">Ne</span>
+                                    </label>
+                                </td>
+                                <td>
+                                    <label class="kir-status-toggle">
+                                        <input form="kir-reservation-status-form" type="hidden" name="reservations[<?php echo esc_attr( (string) $id ); ?>][audio_sent]" value="0" />
+                                        <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) $id ); ?>][audio_sent]" value="1" data-kir-auto-save="1" <?php checked( 1, (int) $row->audio_sent ); ?> />
+                                        <span class="kir-status-toggle__box" aria-hidden="true"></span>
+                                        <span class="kir-status-toggle__state kir-status-toggle__state--yes">Taip</span>
+                                        <span class="kir-status-toggle__state kir-status-toggle__state--no">Ne</span>
+                                    </label>
+                                </td>
+                                <td>
+                                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Atlaisvinti šį skyrių?');">
+                                        <input type="hidden" name="action" value="kir_release_reservation">
+                                        <input type="hidden" name="reservation_id" value="<?php echo esc_attr( (string) $id ); ?>">
+                                        <?php wp_nonce_field( 'kir_release_reservation_' . $id ); ?>
+                                        <button type="submit" class="button button-small">Atlaisvinti</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+            <p class="description">Skyriaus pavadinimas sugeneruojamas automatiškai pagal pasirinktą skyrių. Jei keičiate rezervuotą bendruomenę arba skyrių, sistema paprašys papildomo patvirtinimo.</p>
         </div>
         <?php
     }
@@ -1855,34 +1954,135 @@ final class KIR_Plugin {
 
         global $wpdb;
         $reservations = isset( $_POST['reservations'] ) && is_array( $_POST['reservations'] ) ? wp_unslash( $_POST['reservations'] ) : array();
-        $failed       = false;
-        $updated_ids  = array();
+        $allowed_congregations = array_keys( $this->get_congregations() );
+        $chapter_data          = self::chapter_data();
+        $congregation_by_chapter = $this->get_congregation_by_chapter( $this->get_congregations() );
+        $updates               = array();
+        $errors                = array();
+        $seen_chapters         = array();
 
-        foreach ( $reservations as $id => $statuses ) {
+        foreach ( $reservations as $id => $fields ) {
             $id = absint( $id );
-            if ( ! $id || ! is_array( $statuses ) ) {
+            if ( ! $id || ! is_array( $fields ) ) {
                 continue;
             }
 
+            $current = $wpdb->get_row(
+                $wpdb->prepare( "SELECT id, full_name, email, congregation, chapter, created_at, summary_sent, audio_sent FROM {$this->table_name} WHERE id = %d LIMIT 1", $id )
+            );
+            if ( ! $current ) {
+                $errors[] = 'Registracija #' . $id . ' neberasta.';
+                continue;
+            }
+
+            $full_name    = isset( $fields['full_name'] ) ? trim( sanitize_text_field( $fields['full_name'] ) ) : (string) $current->full_name;
+            $email        = isset( $fields['email'] ) ? sanitize_email( $fields['email'] ) : (string) $current->email;
+            $congregation = isset( $fields['congregation'] ) ? sanitize_text_field( $fields['congregation'] ) : (string) $current->congregation;
+            $chapter      = isset( $fields['chapter'] ) ? absint( $fields['chapter'] ) : (int) $current->chapter;
+            $created_at   = isset( $fields['created_at'] ) ? $this->normalize_admin_datetime( $fields['created_at'] ) : (string) $current->created_at;
+
+            if ( '' === $full_name || strlen( $full_name ) > 190 ) {
+                $errors[] = 'Registracijos #' . $id . ': vardas ir pavardė turi būti nuo 1 iki 190 simbolių.';
+            }
+            if ( ! is_email( $email ) || strlen( $email ) > 190 ) {
+                $errors[] = 'Registracijos #' . $id . ': įrašykite tinkamą el. paštą.';
+            }
+            if ( ! in_array( $congregation, $allowed_congregations, true ) ) {
+                $errors[] = 'Registracijos #' . $id . ': pasirinkta nežinoma bendruomenė.';
+            }
+            if ( ! isset( $chapter_data[ $chapter ] ) ) {
+                $errors[] = 'Registracijos #' . $id . ': pasirinktas nežinomas skyrius.';
+            }
+            if ( false === $created_at ) {
+                $errors[] = 'Registracijos #' . $id . ': data turi būti tinkama.';
+                $created_at = (string) $current->created_at;
+            }
+
+            $pair_changed = $congregation !== (string) $current->congregation || $chapter !== (int) $current->chapter;
+            if ( $pair_changed && ( ! isset( $congregation_by_chapter[ $chapter ] ) || $congregation_by_chapter[ $chapter ] !== $congregation ) ) {
+                $errors[] = 'Registracijos #' . $id . ': pasirinktas skyrius nepriskirtas pasirinktai bendruomenei. Pirmiausia pakeiskite priskyrimą skyrių priskyrimo puslapyje.';
+            }
+
+            if ( isset( $seen_chapters[ $chapter ] ) && $seen_chapters[ $chapter ] !== $id ) {
+                $errors[] = 'Registracijos #' . $id . ': tas pats skyrius jau pasirinktas kitoje šio išsaugojimo eilutėje.';
+            }
+            $seen_chapters[ $chapter ] = $id;
+
+            $conflicting_id = $wpdb->get_var(
+                $wpdb->prepare( "SELECT id FROM {$this->table_name} WHERE chapter = %d AND id <> %d LIMIT 1", $chapter, $id )
+            );
+            if ( $conflicting_id ) {
+                $errors[] = 'Registracijos #' . $id . ': šis skyrius jau rezervuotas kitoje registracijoje.';
+            }
+
+            $updates[] = array(
+                'id'           => $id,
+                'pair_changed' => $pair_changed,
+                'current'      => $current,
+                'fields'       => array(
+                    'full_name'    => $full_name,
+                    'email'        => $email,
+                    'congregation' => $congregation,
+                    'chapter'      => $chapter,
+                    'created_at'   => $created_at,
+                    'summary_sent' => isset( $fields['summary_sent'] ) && '1' === (string) $fields['summary_sent'] ? 1 : 0,
+                    'audio_sent'   => isset( $fields['audio_sent'] ) && '1' === (string) $fields['audio_sent'] ? 1 : 0,
+                ),
+            );
+        }
+
+        if ( ! empty( $errors ) ) {
+            $message = '<p>Nepavyko išsaugoti registracijų:</p><ul>';
+            foreach ( $errors as $error ) {
+                $message .= '<li>' . esc_html( $error ) . '</li>';
+            }
+            $message .= '</ul><p><a href="' . esc_url( admin_url( 'admin.php?page=kir-registrations' ) ) . '">Grįžti į registracijų lentelę</a></p>';
+            wp_die( $message, 'Registracijos neišsaugotos', array( 'response' => 400 ) );
+        }
+
+        $conflicts = array();
+        foreach ( $updates as $update ) {
+            if ( ! $update['pair_changed'] ) {
+                continue;
+            }
+            $conflicts[] = array(
+                'full_name'        => (string) $update['fields']['full_name'],
+                'old_congregation' => (string) $update['current']->congregation,
+                'old_chapter'      => (int) $update['current']->chapter,
+                'new_congregation' => (string) $update['fields']['congregation'],
+                'new_chapter'      => (int) $update['fields']['chapter'],
+            );
+        }
+
+        if ( ! empty( $conflicts ) && empty( $_POST['confirm_conflicts'] ) ) {
+            $this->show_reservation_conflict_confirmation( $updates, $conflicts );
+        }
+
+        $failed      = false;
+        $updated_ids = array();
+        $wpdb->query( 'START TRANSACTION' );
+
+        foreach ( $updates as $update ) {
             $updated = $wpdb->update(
                 $this->table_name,
-                array(
-                    'summary_sent' => isset( $statuses['summary_sent'] ) && '1' === (string) $statuses['summary_sent'] ? 1 : 0,
-                    'audio_sent'   => isset( $statuses['audio_sent'] ) && '1' === (string) $statuses['audio_sent'] ? 1 : 0,
-                ),
-                array( 'id' => $id ),
-                array( '%d', '%d' ),
+                $update['fields'],
+                array( 'id' => $update['id'] ),
+                array( '%s', '%s', '%s', '%d', '%s', '%d', '%d' ),
                 array( '%d' )
             );
 
             if ( false === $updated ) {
                 $failed = true;
-            } else {
-                $updated_ids[] = $id;
+                break;
             }
+            $updated_ids[] = (int) $update['id'];
         }
 
-        $this->sync_reservation_ids_to_google_sheets( $updated_ids );
+        $wpdb->query( $failed ? 'ROLLBACK' : 'COMMIT' );
+
+        if ( ! $failed ) {
+            $this->sync_reservation_ids_to_google_sheets( $updated_ids );
+        }
 
         $notice = $failed ? 'update_error' : 'updated';
         wp_safe_redirect( admin_url( 'admin.php?page=kir-registrations&kir_notice=' . $notice ) );
