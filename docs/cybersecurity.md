@@ -47,3 +47,8 @@ Never ship `.github/security` or its tooling in application packages.
 Public conversion is a separate decision. Review full history, release assets,
 credentials, personal data, licensing and fork restrictions before changing
 visibility. No visibility changes are part of this rollout.
+
+
+## Reviewed scanner exceptions (2026-09-29)
+
+The sort SQL uses a literal column allowlist and constant ASC/DESC. Sort header markup selects constant attributes; URLs pass through esc_url. These specific alerts are false positives, not permission to interpolate other SQL or output raw input. Narrow inline rule suppressions retain all other checks. Owner: repository maintainer. Review by 2026-12-29 or when these expressions change.

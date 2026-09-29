@@ -687,7 +687,7 @@ final class KIR_Plugin {
         }
 
         $id_list = implode( ',', $ids );
-        $rows    = $wpdb->get_results( "SELECT id, created_at, full_name, email, congregation, chapter, summary_sent, audio_sent FROM {$this->table_name} WHERE id IN ({$id_list}) ORDER BY id ASC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $rows    = $wpdb->get_results( "SELECT id, created_at, full_name, email, congregation, chapter, summary_sent, audio_sent FROM {$this->table_name} WHERE id IN ({$id_list}) ORDER BY id ASC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
         $items   = array();
         foreach ( (array) $rows as $row ) {
             $items[] = $this->reservation_to_google_sheet_row( $row );
@@ -704,7 +704,7 @@ final class KIR_Plugin {
             return false;
         }
 
-        $rows  = $wpdb->get_results( "SELECT id, created_at, full_name, email, congregation, chapter, summary_sent, audio_sent FROM {$this->table_name} ORDER BY id ASC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $rows  = $wpdb->get_results( "SELECT id, created_at, full_name, email, congregation, chapter, summary_sent, audio_sent FROM {$this->table_name} ORDER BY id ASC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
         $items = array();
         foreach ( (array) $rows as $row ) {
             $items[] = $this->reservation_to_google_sheet_row( $row );
@@ -766,7 +766,7 @@ final class KIR_Plugin {
     private function get_reserved_chapters() {
         global $wpdb;
 
-        $rows = $wpdb->get_col( "SELECT chapter FROM {$this->table_name}" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $rows = $wpdb->get_col( "SELECT chapter FROM {$this->table_name}" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
         return array_map( 'intval', (array) $rows );
     }
 
@@ -955,15 +955,10 @@ final class KIR_Plugin {
         return ob_get_clean();
     }
 
-    private function verify_public_nonce() {
-        $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
-        if ( ! wp_verify_nonce( $nonce, self::NONCE_ACTION ) ) {
+    public function ajax_get_chapters() {
+        if ( ! isset( $_POST['nonce'] ) || ! is_string( $_POST['nonce'] ) || ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
             wp_send_json_error( array( 'message' => 'Saugumo patikra nepavyko. Atnaujinkite puslapį ir bandykite dar kartą.' ), 403 );
         }
-    }
-
-    public function ajax_get_chapters() {
-        $this->verify_public_nonce();
 
         $congregation = isset( $_POST['congregation'] ) ? sanitize_text_field( wp_unslash( $_POST['congregation'] ) ) : '';
         $all           = $this->get_congregations();
@@ -1029,7 +1024,7 @@ final class KIR_Plugin {
         $hash = $this->owner_token_hash( $token );
         $rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT congregation, chapter FROM {$this->table_name} WHERE owner_token_hash = %s ORDER BY chapter ASC",
+                "SELECT congregation, chapter FROM {$this->table_name} WHERE owner_token_hash = %s ORDER BY chapter ASC", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
                 $hash
             ),
             ARRAY_A
@@ -1048,8 +1043,11 @@ final class KIR_Plugin {
     }
 
     public function ajax_get_my_reservations() {
-        $this->verify_public_nonce();
+        if ( ! isset( $_POST['nonce'] ) || ! is_string( $_POST['nonce'] ) || ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+            wp_send_json_error( array( 'message' => 'Saugumo patikra nepavyko. Atnaujinkite puslapį ir bandykite dar kartą.' ), 403 );
+        }
 
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- normalize_owner_token validates exact credential grammar below.
         $token_raw = isset( $_POST['owner_token'] ) ? wp_unslash( $_POST['owner_token'] ) : '';
         $token     = $this->normalize_owner_token( $token_raw );
         if ( '' === $token ) {
@@ -1068,9 +1066,12 @@ final class KIR_Plugin {
     public function ajax_cancel_my_reservations() {
         global $wpdb;
 
-        $this->verify_public_nonce();
+        if ( ! isset( $_POST['nonce'] ) || ! is_string( $_POST['nonce'] ) || ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+            wp_send_json_error( array( 'message' => 'Saugumo patikra nepavyko. Atnaujinkite puslapį ir bandykite dar kartą.' ), 403 );
+        }
         $texts = $this->get_texts();
 
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- normalize_owner_token validates exact credential grammar below.
         $token_raw = isset( $_POST['owner_token'] ) ? wp_unslash( $_POST['owner_token'] ) : '';
         $token     = $this->normalize_owner_token( $token_raw );
         if ( '' === $token ) {
@@ -1080,7 +1081,7 @@ final class KIR_Plugin {
         $hash = $this->owner_token_hash( $token );
         $released_rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT id, congregation, chapter FROM {$this->table_name} WHERE owner_token_hash = %s ORDER BY chapter ASC",
+                "SELECT id, congregation, chapter FROM {$this->table_name} WHERE owner_token_hash = %s ORDER BY chapter ASC", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
                 $hash
             ),
             ARRAY_A
@@ -1089,7 +1090,7 @@ final class KIR_Plugin {
 
         $deleted = $wpdb->query(
             $wpdb->prepare(
-                "DELETE FROM {$this->table_name} WHERE owner_token_hash = %s",
+                "DELETE FROM {$this->table_name} WHERE owner_token_hash = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
                 $hash
             )
         );
@@ -1121,7 +1122,9 @@ final class KIR_Plugin {
     public function ajax_submit_reservation() {
         global $wpdb;
 
-        $this->verify_public_nonce();
+        if ( ! isset( $_POST['nonce'] ) || ! is_string( $_POST['nonce'] ) || ! check_ajax_referer( self::NONCE_ACTION, 'nonce', false ) ) {
+            wp_send_json_error( array( 'message' => 'Saugumo patikra nepavyko. Atnaujinkite puslapį ir bandykite dar kartą.' ), 403 );
+        }
         $texts = $this->get_texts();
 
         // Paprastas honeypot nuo automatinių formos pildymų.
@@ -1131,12 +1134,16 @@ final class KIR_Plugin {
         }
 
         $full_name     = isset( $_POST['full_name'] ) ? sanitize_text_field( wp_unslash( $_POST['full_name'] ) ) : '';
-        $email_raw     = isset( $_POST['email'] ) ? wp_unslash( $_POST['email'] ) : '';
+        $email_raw     = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
         $email         = sanitize_email( $email_raw );
         $congregation  = isset( $_POST['congregation'] ) ? sanitize_text_field( wp_unslash( $_POST['congregation'] ) ) : '';
         $chapters_raw  = isset( $_POST['chapters'] ) ? sanitize_text_field( wp_unslash( $_POST['chapters'] ) ) : '';
         $chapters      = array_values( array_unique( array_filter( array_map( 'absint', explode( ',', $chapters_raw ) ) ) ) );
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Exact token grammar is validated below.
         $owner_token_raw = isset( $_POST['owner_token'] ) ? wp_unslash( $_POST['owner_token'] ) : '';
+        if ( ! is_string( $owner_token_raw ) ) {
+            wp_send_json_error( array( 'message' => $texts['invalid_message'] ), 400 );
+        }
         $owner_token     = '' !== trim( (string) $owner_token_raw ) ? $this->normalize_owner_token( $owner_token_raw ) : '';
 
         if ( '' !== trim( (string) $owner_token_raw ) && '' === $owner_token ) {
@@ -1187,7 +1194,7 @@ final class KIR_Plugin {
             if ( false === $inserted ) {
                 $exists = $wpdb->get_var(
                     $wpdb->prepare(
-                        "SELECT id FROM {$this->table_name} WHERE chapter = %d LIMIT 1",
+                        "SELECT id FROM {$this->table_name} WHERE chapter = %d LIMIT 1", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
                         $chapter
                     )
                 );
@@ -1444,6 +1451,7 @@ final class KIR_Plugin {
         $html .= '<a class="button" href="' . esc_url( $back_url ) . '">Atšaukti</a>';
         $html .= '</form></div>';
 
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Confirmation form is assembled above with context-escaped values and a nonce field.
         wp_die( $html, 'Patvirtinkite registracijos pakeitimą', array( 'response' => 200 ) );
     }
 
@@ -1467,7 +1475,7 @@ final class KIR_Plugin {
         $sort_key      = isset( $sort_columns[ $sort_key ] ) ? $sort_key : 'created_at';
         $sort_order    = isset( $_GET['order'] ) && 'asc' === strtolower( sanitize_key( wp_unslash( $_GET['order'] ) ) ) ? 'ASC' : 'DESC'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
         $order_sql     = $sort_columns[ $sort_key ] . ' ' . $sort_order;
-        $rows          = $wpdb->get_results( "SELECT id, full_name, email, congregation, chapter, created_at, summary_sent, audio_sent FROM {$this->table_name} ORDER BY {$order_sql}, id DESC" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $rows          = $wpdb->get_results( "SELECT id, full_name, email, congregation, chapter, created_at, summary_sent, audio_sent FROM {$this->table_name} ORDER BY {$order_sql}, id DESC" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
         $congregations = $this->get_congregations();
         $chapter_data  = self::chapter_data();
         $reserved      = array_flip( $this->get_reserved_chapters() );
@@ -1544,14 +1552,14 @@ final class KIR_Plugin {
                 <table class="widefat striped kir-registrations-table">
                     <thead>
                         <tr>
-                            <th scope="col" <?php echo 'created_at' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'created_at', $sort_key, $sort_order ) ); ?>">Data <span class="screen-reader-text">rikiuoti</span></a></th>
-                            <th scope="col" <?php echo 'full_name' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'full_name', $sort_key, $sort_order ) ); ?>">Vardas ir pavardė</a></th>
-                            <th scope="col" <?php echo 'email' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'email', $sort_key, $sort_order ) ); ?>">El. paštas</a></th>
-                            <th scope="col" <?php echo 'congregation' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'congregation', $sort_key, $sort_order ) ); ?>">Bendruomenė</a></th>
-                            <th scope="col" <?php echo 'chapter' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'chapter', $sort_key, $sort_order ) ); ?>">Skyrius</a></th>
+                            <th scope="col" <?php /* nosemgrep: php.lang.security.injection.echoed-request.echoed-request */ echo 'created_at' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'created_at', $sort_key, $sort_order ) ); ?>">Data <span class="screen-reader-text">rikiuoti</span></a></th>
+                            <th scope="col" <?php /* nosemgrep: php.lang.security.injection.echoed-request.echoed-request */ echo 'full_name' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'full_name', $sort_key, $sort_order ) ); ?>">Vardas ir pavardė</a></th>
+                            <th scope="col" <?php /* nosemgrep: php.lang.security.injection.echoed-request.echoed-request */ echo 'email' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'email', $sort_key, $sort_order ) ); ?>">El. paštas</a></th>
+                            <th scope="col" <?php /* nosemgrep: php.lang.security.injection.echoed-request.echoed-request */ echo 'congregation' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'congregation', $sort_key, $sort_order ) ); ?>">Bendruomenė</a></th>
+                            <th scope="col" <?php /* nosemgrep: php.lang.security.injection.echoed-request.echoed-request */ echo 'chapter' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'chapter', $sort_key, $sort_order ) ); ?>">Skyrius</a></th>
                             <th scope="col">Pavadinimas</th>
-                            <th scope="col" <?php echo 'summary_sent' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'summary_sent', $sort_key, $sort_order ) ); ?>">Santrauka išsiųsta</a></th>
-                            <th scope="col" <?php echo 'audio_sent' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'audio_sent', $sort_key, $sort_order ) ); ?>">Atsiuntė audio</a></th>
+                            <th scope="col" <?php /* nosemgrep: php.lang.security.injection.echoed-request.echoed-request */ echo 'summary_sent' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'summary_sent', $sort_key, $sort_order ) ); ?>">Santrauka išsiųsta</a></th>
+                            <th scope="col" <?php /* nosemgrep: php.lang.security.injection.echoed-request.echoed-request */ echo 'audio_sent' === $sort_key ? 'aria-sort="' . esc_attr( 'ASC' === $sort_order ? 'ascending' : 'descending' ) . '"' : ''; ?>><a class="kir-sort-link" href="<?php echo esc_url( $this->admin_registration_sort_url( 'audio_sent', $sort_key, $sort_order ) ); ?>">Atsiuntė audio</a></th>
                             <th scope="col">Veiksmas</th>
                         </tr>
                     </thead>
@@ -1846,7 +1854,7 @@ final class KIR_Plugin {
         }
 
         $chapter_list = implode( ',', $chapters );
-        return (array) $wpdb->get_results( "SELECT id, chapter, congregation, full_name FROM {$this->table_name} WHERE chapter IN ({$chapter_list})", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        return (array) $wpdb->get_results( "SELECT id, chapter, congregation, full_name FROM {$this->table_name} WHERE chapter IN ({$chapter_list})", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
     }
 
     private function get_assignment_conflicts( $current, $proposed ) {
@@ -1908,6 +1916,7 @@ final class KIR_Plugin {
         $html .= '<a class="button" href="' . esc_url( $back_url ) . '">Atšaukti</a>';
         $html .= '</form></div>';
 
+        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Confirmation form is assembled above with context-escaped values and a nonce field.
         wp_die( $html, 'Patvirtinkite priskyrimo pakeitimą', array( 'response' => 200 ) );
     }
 
@@ -1930,6 +1939,7 @@ final class KIR_Plugin {
 
         check_admin_referer( 'kir_update_assignments' );
 
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Structured fields are individually validated before persistence.
         $input    = isset( $_POST['assignments'] ) && is_array( $_POST['assignments'] ) ? wp_unslash( $_POST['assignments'] ) : array();
         $current  = $this->get_congregations();
         $proposed = $this->sanitize_congregation_settings( $input );
@@ -1953,6 +1963,7 @@ final class KIR_Plugin {
         check_admin_referer( 'kir_update_reservations' );
 
         global $wpdb;
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Structured fields are individually validated before persistence.
         $reservations = isset( $_POST['reservations'] ) && is_array( $_POST['reservations'] ) ? wp_unslash( $_POST['reservations'] ) : array();
         $allowed_congregations = array_keys( $this->get_congregations() );
         $chapter_data          = self::chapter_data();
@@ -1968,7 +1979,7 @@ final class KIR_Plugin {
             }
 
             $current = $wpdb->get_row(
-                $wpdb->prepare( "SELECT id, full_name, email, congregation, chapter, created_at, summary_sent, audio_sent FROM {$this->table_name} WHERE id = %d LIMIT 1", $id )
+                $wpdb->prepare( "SELECT id, full_name, email, congregation, chapter, created_at, summary_sent, audio_sent FROM {$this->table_name} WHERE id = %d LIMIT 1", $id ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
             );
             if ( ! $current ) {
                 $errors[] = 'Registracija #' . $id . ' neberasta.';
@@ -2009,7 +2020,7 @@ final class KIR_Plugin {
             $seen_chapters[ $chapter ] = $id;
 
             $conflicting_id = $wpdb->get_var(
-                $wpdb->prepare( "SELECT id FROM {$this->table_name} WHERE chapter = %d AND id <> %d LIMIT 1", $chapter, $id )
+                $wpdb->prepare( "SELECT id FROM {$this->table_name} WHERE chapter = %d AND id <> %d LIMIT 1", $chapter, $id ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
             );
             if ( $conflicting_id ) {
                 $errors[] = 'Registracijos #' . $id . ': šis skyrius jau rezervuotas kitoje registracijoje.';
@@ -2037,7 +2048,7 @@ final class KIR_Plugin {
                 $message .= '<li>' . esc_html( $error ) . '</li>';
             }
             $message .= '</ul><p><a href="' . esc_url( admin_url( 'admin.php?page=kir-registrations' ) ) . '">Grįžti į registracijų lentelę</a></p>';
-            wp_die( $message, 'Registracijos neišsaugotos', array( 'response' => 400 ) );
+            wp_die( wp_kses_post( $message ), 'Registracijos neišsaugotos', array( 'response' => 400 ) );
         }
 
         $conflicts = array();
@@ -2078,7 +2089,7 @@ final class KIR_Plugin {
             $updated_ids[] = (int) $update['id'];
         }
 
-        $wpdb->query( $failed ? 'ROLLBACK' : 'COMMIT' );
+        $wpdb->query( $failed ? 'ROLLBACK' : 'COMMIT' ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
 
         if ( ! $failed ) {
             $this->sync_reservation_ids_to_google_sheets( $updated_ids );
@@ -2103,7 +2114,7 @@ final class KIR_Plugin {
 
         global $wpdb;
         $reservation_exists = (bool) $wpdb->get_var(
-            $wpdb->prepare( "SELECT id FROM {$this->table_name} WHERE id = %d LIMIT 1", $id )
+            $wpdb->prepare( "SELECT id FROM {$this->table_name} WHERE id = %d LIMIT 1", $id ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
         );
         $wpdb->delete( $this->table_name, array( 'id' => $id ), array( '%d' ) );
 
@@ -2122,7 +2133,7 @@ final class KIR_Plugin {
         check_admin_referer( 'kir_export_xlsx' );
 
         global $wpdb;
-        $rows = $wpdb->get_results( "SELECT created_at, full_name, email, congregation, chapter, summary_sent, audio_sent FROM {$this->table_name} ORDER BY chapter ASC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+        $rows = $wpdb->get_results( "SELECT created_at, full_name, email, congregation, chapter, summary_sent, audio_sent FROM {$this->table_name} ORDER BY chapter ASC", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQL.NotPrepared
 
         $data = array();
         $data[] = array( 'Data', 'Vardas ir pavardė', 'El. paštas', 'Bendruomenė', 'Skyrius', 'Skyriaus pavadinimas', 'Santrauka išsiųsta', 'Atsiuntė audio' );
