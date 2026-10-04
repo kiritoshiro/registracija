@@ -52,3 +52,20 @@ visibility. No visibility changes are part of this rollout.
 ## Reviewed scanner exceptions (2026-09-29)
 
 The sort SQL uses a literal column allowlist and constant ASC/DESC. Sort header markup selects constant attributes; URLs pass through esc_url. These specific alerts are false positives, not permission to interpolate other SQL or output raw input. Narrow inline rule suppressions retain all other checks. Owner: repository maintainer. Review by 2026-12-29 or when these expressions change.
+
+## Security gate
+
+`.github/workflows/security-gate.yml` is the only workflow that triggers the
+security scans: on pull requests to the default branch, weekly, manually, and
+from the release workflow. This private repository skips a separate run on
+every push to save Actions minutes. The scan workflows (the baseline and, where present, CodeQL and the
+older security workflow) are reusable and run only through it. The gate also adds
+dependency audits for shipped lockfiles and, on pull requests where the repository has the dependency graph enabled, dependency review.
+Its final job, **All security checks passed**, fails unless every check succeeded;
+a cancelled or unexpectedly skipped check counts as a failure.
+
+Release workflows call the same gate on the release commit, so a package is built
+only when every check passes on exactly that commit. Branch protection on public
+repositories requires **All security checks passed** (plus the code-scanning
+**CodeQL** check where CodeQL runs). Private repositories on GitHub Free cannot
+enforce required checks, so review the gate result before merging there.
