@@ -2,7 +2,7 @@
 Contributors: custom
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 2.2.0
+Stable tag: 2.2.1
 
 Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsinimo registracijai skirtas WordPress įskiepis.
 
@@ -27,6 +27,9 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 5. Išsaugokite nustatymus ir vieną kartą paleiskite esamų registracijų sinchronizaciją.
 
 Įskiepis į Google Sheets siunčia naujas registracijas, būsenų pakeitimus, atšaukimus ir administratoriaus atlaisvinimus. Jei Google endpoint laikinai nepasiekiamas, vietinė WordPress registracija vis tiek išsaugoma.
+
+== 2.2.1 ==
+- Saugumas: viešos AJAX užklausos atmeta netinkamo tipo reikšmes, saugos kodas (nonce) tikrinamas per check_ajax_referer, o el. pašto adresas išvalomas su sanitize_email.
 
 == 2.2.0 ==
 - Registracijų lentelę galima rikiuoti pagal datą ir kitus pagrindinius laukus; pagal nutylėjimą rodomos naujausios registracijos.
