@@ -1,0 +1,15 @@
+{
+  "mounts": [
+    {
+      "host": ".",
+      "vfs": "/wordpress/wp-content/plugins/knygos-igarsinimo-registracija"
+    }
+  ],
+  "plugins": [
+    "knygos-igarsinimo-registracija/knygos-igarsinimo-registracija.php"
+  ],
+  "watch": [
+    "/wordpress/wp-content/plugins/knygos-igarsinimo-registracija/"
+  ],
+  "fixture": "<!-- wp:shortcode -->[knygos_igarsinimo_registracija]<!-- /wp:shortcode -->"
+}
