@@ -31,10 +31,14 @@ jobs:
     name: Baseline
     uses: ./.github/workflows/cybersecurity.yml
 
+  wordpress:
+    name: WordPress
+    uses: ./.github/workflows/wordpress-checks.yml
+
   gate:
     name: All security checks passed
     if: ${{ always() }}
-    needs: [baseline]
+    needs: [baseline, wordpress]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
