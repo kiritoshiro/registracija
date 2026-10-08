@@ -1,0 +1,6 @@
+# Keep development files out of GitHub's release zipball, which WordPress
+# installs as the plugin update.
+/.github export-ignore
+/docs export-ignore
+/.lychee.toml export-ignore
+/.gitattributes export-ignore
