@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.2.1
+ * Version: 2.2.2
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.2.1';
+    const VERSION               = '2.2.2';
     const DB_VERSION            = '1.7.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
@@ -70,6 +70,20 @@ final class KIR_Plugin {
         add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_for_update' ) );
         add_filter( 'plugins_api', array( $this, 'plugin_information' ), 10, 3 );
         add_filter( 'upgrader_source_selection', array( $this, 'normalize_update_source' ), 10, 4 );
+        add_action( 'load-update-core.php', array( $this, 'force_update_check' ), 9 );
+    }
+
+    /**
+     * "Check again" on Dashboard → Updates (force-check=1) only forces the core
+     * check. Drop the release cache and WordPress' plugin update data before
+     * wp_update_plugins runs (priority 10), so a new release shows at once.
+     */
+    public function force_update_check() {
+        if ( empty( $_GET['force-check'] ) || ! current_user_can( 'update_plugins' ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only cache refresh.
+            return;
+        }
+        delete_site_transient( $this->release_transient_key() );
+        delete_site_transient( 'update_plugins' );
     }
 
     private function plugin_basename() {
