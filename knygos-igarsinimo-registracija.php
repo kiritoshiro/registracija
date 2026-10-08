@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.2.2
+ * Version: 2.2.3
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.2.2';
+    const VERSION               = '2.2.3';
     const DB_VERSION            = '1.7.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
@@ -230,7 +230,9 @@ final class KIR_Plugin {
             return new WP_Error( 'kir_update_folder', 'Atnaujinimo paketo aplanko paruošti nepavyko.' );
         }
 
-        return $expected_source;
+        // With the trailing slash, as WordPress passes sources: its package check
+        // globs "$source*.php" and finds no plugin in a path without it.
+        return trailingslashit( $expected_source );
     }
 
     public static function activate() {
