@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.3.0
+ * Version: 2.4.0
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,8 +15,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.3.0';
-    const DB_VERSION            = '1.7.0';
+    const VERSION               = '2.4.0';
+    const DB_VERSION            = '1.8.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
     const OPTION_DB_VER         = 'kir_db_version';
@@ -24,6 +24,7 @@ final class KIR_Plugin {
     const OPTION_GOOGLE_SHEETS_STATUS = 'kir_google_sheets_status';
     const OPTION_NOTIFY_EMAIL   = 'kir_notify_email';
     const DEFAULT_NOTIFY_EMAIL  = 'darius@adventistai.lt';
+    const OPTION_NOTIFY_STATUS  = 'kir_notify_status';
     const NONCE_ACTION          = 'kir_public_form';
     const SHORTCODE             = 'knygos_igarsinimo_registracija';
     const PLUGIN_SLUG            = 'knygos-igarsinimo-registracija';
@@ -69,6 +70,7 @@ final class KIR_Plugin {
         add_action( 'admin_post_kir_update_assignments', array( $this, 'handle_update_assignments' ) );
         add_action( 'admin_post_kir_release_reservation', array( $this, 'handle_release_reservation' ) );
         add_action( 'admin_post_kir_sync_google_sheets', array( $this, 'handle_sync_google_sheets' ) );
+        add_action( 'admin_post_kir_send_test_email', array( $this, 'handle_send_test_email' ) );
 
         add_filter( 'pre_set_site_transient_update_plugins', array( $this, 'check_for_update' ) );
         add_filter( 'plugins_api', array( $this, 'plugin_information' ), 10, 3 );
@@ -154,7 +156,9 @@ final class KIR_Plugin {
             'published_at'=> isset( $body['published_at'] ) ? sanitize_text_field( $body['published_at'] ) : '',
         );
 
-        set_site_transient( $this->release_transient_key(), $release, 6 * HOUR_IN_SECONDS );
+        // Trumpai: WordPress Atnaujinimų puslapyje tikrina kas minutę, įskiepių
+        // puslapyje kas valandą, todėl naujas leidimas pasirodo per ~15 min.
+        set_site_transient( $this->release_transient_key(), $release, 15 * MINUTE_IN_SECONDS );
         return $release;
     }
 
@@ -313,6 +317,11 @@ final class KIR_Plugin {
             'reader_hint'  => 'Paspauskite „Peržiūrėti“ prie skyriaus – skaityklė atvers jo pradžią.',
             'chapter_help' => 'Pažymėkite vieną arba kelis laisvus skyrius. „Peržiūrėti“ atvers pasirinkto skyriaus pradžią knygoje.',
         );
+        // Iki 2.4.0 buvo galima atsisakyti tik visų skyrių iš karto.
+        $v230_defaults = array(
+            'cancel_confirm' => 'Ar tikrai norite atsisakyti visų šiame įrenginyje išsaugotų pasirinktų skyrių?',
+            'cancel_success' => 'Jūsų pasirinkimas atšauktas. Skyriai vėl laisvi.',
+        );
         $new_defaults = self::default_texts();
 
         // Nuo 1.5.0 PDF nebepakuojamas su įskiepiu. Naudojamas svetainėje jau esantis
@@ -322,7 +331,7 @@ final class KIR_Plugin {
             $saved['pdf_url'] = self::site_pdf_url();
         }
 
-        foreach ( array( $legacy_defaults, $v110_defaults, $v120_defaults, $v151_defaults ) as $old_defaults ) {
+        foreach ( array( $legacy_defaults, $v110_defaults, $v120_defaults, $v151_defaults, $v230_defaults ) as $old_defaults ) {
             foreach ( $old_defaults as $key => $old_value ) {
                 if ( isset( $saved[ $key ] ) && $saved[ $key ] === $old_value ) {
                     $saved[ $key ] = $new_defaults[ $key ];
@@ -570,8 +579,8 @@ final class KIR_Plugin {
             'my_selection_title'     => 'Jūsų pasirinkimas',
             'my_selection_intro'     => 'Šiame įrenginyje išsaugoti jūsų rezervuoti skyriai:',
             'cancel_button'          => 'Atsisakyti',
-            'cancel_confirm'         => 'Ar tikrai norite atsisakyti visų šiame įrenginyje išsaugotų pasirinktų skyrių?',
-            'cancel_success'         => 'Jūsų pasirinkimas atšauktas. Skyriai vėl laisvi.',
+            'cancel_confirm'         => 'Ar tikrai norite atsisakyti {chapter} skyriaus — {chapter_title}?',
+            'cancel_success'         => '{chapter} skyriaus atsisakyta. Skyrius vėl laisvas.',
         );
     }
 
@@ -858,6 +867,7 @@ final class KIR_Plugin {
             'invalidMessage'         => $texts['invalid_message'],
             'selectionRequired'      => $texts['selection_required'],
             'selectChapterLabel'     => $texts['select_chapter_label'],
+            'cancelButton'           => $texts['cancel_button'],
             'cancelConfirm'          => $texts['cancel_confirm'],
             'cancelSuccess'          => $texts['cancel_success'],
             'chaptersByCongregation' => $chapters_by_congregation,
@@ -948,7 +958,6 @@ final class KIR_Plugin {
                                 <p class="kir-my-selection-intro"><?php echo esc_html( $texts['my_selection_intro'] ); ?></p>
                             <?php endif; ?>
                             <div class="kir-my-selection-list"></div>
-                            <button type="button" class="kir-cancel-selection"><?php echo esc_html( $texts['cancel_button'] ); ?></button>
                         </section>
                     </form>
                 </div>
@@ -1108,11 +1117,18 @@ final class KIR_Plugin {
             wp_send_json_error( array( 'message' => $texts['invalid_message'] ), 400 );
         }
 
+        // Atsisakoma vieno skyriaus; kiti to paties žmogaus skyriai lieka.
+        $chapter = isset( $_POST['chapter'] ) && is_string( $_POST['chapter'] ) ? absint( $_POST['chapter'] ) : 0;
+        if ( ! $chapter ) {
+            wp_send_json_error( array( 'message' => $texts['invalid_message'] ), 400 );
+        }
+
         $hash = $this->owner_token_hash( $token );
         $released_rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT id, congregation, chapter FROM {$this->table_name} WHERE owner_token_hash = %s ORDER BY chapter ASC", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
-                $hash
+                "SELECT id, congregation, chapter FROM {$this->table_name} WHERE owner_token_hash = %s AND chapter = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
+                $hash,
+                $chapter
             ),
             ARRAY_A
         );
@@ -1120,21 +1136,38 @@ final class KIR_Plugin {
 
         $deleted = $wpdb->query(
             $wpdb->prepare(
-                "DELETE FROM {$this->table_name} WHERE owner_token_hash = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
-                $hash
+                "DELETE FROM {$this->table_name} WHERE owner_token_hash = %s AND chapter = %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
+                $hash,
+                $chapter
             )
         );
 
         if ( false === $deleted ) {
             wp_send_json_error( array( 'message' => 'Pasirinkimo atšaukti nepavyko. Bandykite dar kartą.' ), 500 );
         }
+        if ( 0 === (int) $deleted ) {
+            wp_send_json_error(
+                array(
+                    'message'      => $texts['invalid_message'],
+                    'reservations' => $this->get_reservations_for_owner_token( $token ),
+                ),
+                404
+            );
+        }
 
         $this->delete_reservation_ids_from_google_sheets( wp_list_pluck( (array) $released_rows, 'id' ) );
 
         wp_send_json_success(
             array(
-                'message'       => $texts['cancel_success'],
+                'message'       => strtr(
+                    $texts['cancel_success'],
+                    array(
+                        '{chapter}'       => (string) $chapter,
+                        '{chapter_title}' => self::chapter_title( $chapter ),
+                    )
+                ),
                 'deleted'       => (int) $deleted,
+                'reservations'  => $this->get_reservations_for_owner_token( $token ),
                 'congregations' => array_values( array_map( 'sanitize_text_field', (array) $congregations ) ),
                 'released'      => array_values( array_map(
                     static function ( $row ) {
@@ -1336,6 +1369,15 @@ final class KIR_Plugin {
 
         add_submenu_page(
             'kir-registrations',
+            'Pranešimai el. paštu',
+            'Pranešimai',
+            'manage_options',
+            'kir-notifications',
+            array( $this, 'render_admin_notifications' )
+        );
+
+        add_submenu_page(
+            'kir-registrations',
             'Skyrių priskyrimas',
             'Skyrių priskyrimas',
             'manage_options',
@@ -1365,7 +1407,7 @@ final class KIR_Plugin {
         );
 
         register_setting(
-            'kir_texts_group',
+            'kir_notify_group',
             self::OPTION_NOTIFY_EMAIL,
             array(
                 'type'              => 'string',
@@ -1471,7 +1513,61 @@ final class KIR_Plugin {
             $headers[] = 'Reply-To: ' . $email;
         }
 
-        wp_mail( $recipients, $subject, implode( "\n", $lines ), $headers );
+        $this->deliver_notification( $recipients, $subject, implode( "\n", $lines ), $headers );
+    }
+
+    /**
+     * Siunčia laišką ir įsimena rezultatą, kad „Pranešimų“ puslapyje matytųsi,
+     * ar WordPress laišką perdavė, ar gavo klaidą.
+     */
+    private function deliver_notification( $recipients, $subject, $message, $headers ) {
+        $error   = '';
+        $capture = static function ( $wp_error ) use ( &$error ) {
+            if ( is_wp_error( $wp_error ) ) {
+                $error = $wp_error->get_error_message();
+            }
+        };
+
+        add_action( 'wp_mail_failed', $capture );
+        $sent = wp_mail( $recipients, $subject, $message, $headers );
+        remove_action( 'wp_mail_failed', $capture );
+
+        update_option(
+            self::OPTION_NOTIFY_STATUS,
+            array(
+                'status'  => $sent ? 'sent' : 'failed',
+                'to'      => implode( ', ', (array) $recipients ),
+                'subject' => sanitize_text_field( $subject ),
+                'message' => sanitize_text_field( $error ),
+                'at'      => current_time( 'mysql' ),
+            ),
+            false
+        );
+
+        return $sent;
+    }
+
+    public function handle_send_test_email() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Neturite teisės atlikti šio veiksmo.', 'knygos-igarsinimo-registracija' ) );
+        }
+        check_admin_referer( 'kir_send_test_email' );
+
+        $recipients = $this->get_notify_emails();
+        if ( empty( $recipients ) ) {
+            wp_safe_redirect( admin_url( 'admin.php?page=kir-notifications&kir_notice=test_no_address' ) );
+            exit;
+        }
+
+        $sent = $this->deliver_notification(
+            $recipients,
+            'Bandomasis laiškas: įgarsinimo registracijos pranešimai',
+            'Tai bandomasis laiškas iš svetainės ' . home_url( '/' ) . ".\n\nJei jį gavote, pranešimai apie naujas registracijas ateis šiuo adresu.",
+            array( 'Content-Type: text/plain; charset=UTF-8' )
+        );
+
+        wp_safe_redirect( admin_url( 'admin.php?page=kir-notifications&kir_notice=' . ( $sent ? 'test_sent' : 'test_failed' ) ) );
+        exit;
     }
 
     public function sanitize_congregation_settings( $input ) {
@@ -1815,6 +1911,63 @@ final class KIR_Plugin {
         <?php
     }
 
+    public function render_admin_notifications() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Neturite teisės peržiūrėti šio puslapio.', 'knygos-igarsinimo-registracija' ) );
+        }
+
+        $status = get_option( self::OPTION_NOTIFY_STATUS, array() );
+        $status = wp_parse_args( is_array( $status ) ? $status : array(), array( 'status' => '', 'to' => '', 'subject' => '', 'message' => '', 'at' => '' ) );
+        $notice = isset( $_GET['kir_notice'] ) ? sanitize_key( wp_unslash( $_GET['kir_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+        ?>
+        <div class="wrap">
+            <h1>Pranešimai el. paštu</h1>
+            <?php settings_errors( self::OPTION_NOTIFY_EMAIL ); ?>
+            <?php if ( 'test_sent' === $notice ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Bandomasis laiškas perduotas siuntimui. Jei per kelias minutes jo negavote, patikrinkite šlamšto (spam) aplanką.</p></div>
+            <?php elseif ( 'test_failed' === $notice ) : ?>
+                <div class="notice notice-error is-dismissible"><p>Bandomojo laiško išsiųsti nepavyko. Klaida nurodyta žemiau.</p></div>
+            <?php elseif ( 'test_no_address' === $notice ) : ?>
+                <div class="notice notice-warning is-dismissible"><p>Pirmiausia įrašykite ir išsaugokite el. pašto adresą.</p></div>
+            <?php endif; ?>
+
+            <form method="post" action="options.php">
+                <?php settings_fields( 'kir_notify_group' ); ?>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><label for="kir_notify_email">El. paštas pranešimams apie naujas registracijas</label></th>
+                            <td>
+                                <input class="regular-text" type="text" id="kir_notify_email" name="<?php echo esc_attr( self::OPTION_NOTIFY_EMAIL ); ?>" value="<?php echo esc_attr( (string) get_option( self::OPTION_NOTIFY_EMAIL, self::DEFAULT_NOTIFY_EMAIL ) ); ?>" aria-describedby="kir_notify_email_help">
+                                <p class="description" id="kir_notify_email_help">Po kiekvienos registracijos šiuo adresu išsiunčiamas laiškas su vardu, el. paštu, bendruomene ir skyriais. Kelis adresus atskirkite kableliu; palikite tuščią, jei laiškų nereikia.</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <?php submit_button( 'Išsaugoti' ); ?>
+            </form>
+
+            <h2>Patikrinimas</h2>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <input type="hidden" name="action" value="kir_send_test_email">
+                <?php wp_nonce_field( 'kir_send_test_email' ); ?>
+                <p><button type="submit" class="button">Siųsti bandomąjį laišką</button></p>
+            </form>
+
+            <p class="kir-notify-status"><strong>Paskutinis siuntimas:</strong>
+                <?php if ( '' === $status['at'] ) : ?>
+                    dar nebuvo.
+                <?php elseif ( 'sent' === $status['status'] ) : ?>
+                    <?php echo esc_html( $status['at'] . ' – perduotas siuntimui adresu ' . $status['to'] . ' („' . $status['subject'] . '“).' ); ?>
+                <?php else : ?>
+                    <span style="color:#b32d2e"><?php echo esc_html( $status['at'] . ' – nepavyko (' . $status['to'] . '): ' . ( '' !== $status['message'] ? $status['message'] : 'nežinoma klaida' ) ); ?></span>
+                <?php endif; ?>
+            </p>
+            <p class="description">Laiškus siunčia pati WordPress svetainė. Jei siuntimas „perduotas“, bet laiškas neateina net į šlamšto aplanką, svetainės serveris greičiausiai nesiunčia laiškų patikimai: įdiekite SMTP įskiepį (pvz., WP Mail SMTP) ir prijunkite tikrą pašto dėžutę.</p>
+        </div>
+        <?php
+    }
+
     public function render_admin_texts() {
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'Neturite teisės peržiūrėti šio puslapio.', 'knygos-igarsinimo-registracija' ) );
@@ -1857,24 +2010,10 @@ final class KIR_Plugin {
         ?>
         <div class="wrap">
             <h1>Formos tekstai</h1>
-            <?php settings_errors( self::OPTION_NOTIFY_EMAIL ); ?>
             <p>Čia galima pakeisti visus pagrindinius lankytojui rodomus formos tekstus. Sėkmės pranešime galima naudoti <code>{chapter}</code>, <code>{chapter_title}</code>, <code>{chapters}</code>, <code>{chapter_titles}</code>, <code>{chapter_list}</code>, <code>{congregation}</code> ir <code>{name}</code>. Knygos ir PDF nuorodoms leidžiami tik <code>http</code> ir <code>https</code> adresai.</p>
 
             <form method="post" action="options.php">
                 <?php settings_fields( 'kir_texts_group' ); ?>
-                <h2>Pranešimai el. paštu</h2>
-                <table class="form-table" role="presentation">
-                    <tbody>
-                        <tr>
-                            <th scope="row"><label for="kir_notify_email">Pranešti apie naujas registracijas</label></th>
-                            <td>
-                                <input class="regular-text" type="text" id="kir_notify_email" name="<?php echo esc_attr( self::OPTION_NOTIFY_EMAIL ); ?>" value="<?php echo esc_attr( (string) get_option( self::OPTION_NOTIFY_EMAIL, self::DEFAULT_NOTIFY_EMAIL ) ); ?>" aria-describedby="kir_notify_email_help">
-                                <p class="description" id="kir_notify_email_help">Po kiekvienos registracijos šiuo adresu išsiunčiamas laiškas su vardu, el. paštu, bendruomene ir skyriais. Kelis adresus atskirkite kableliu; palikite tuščią, jei laiškų nereikia.</p>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <h2>Formos tekstai</h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                     <?php foreach ( $fields as $key => $label ) : ?>

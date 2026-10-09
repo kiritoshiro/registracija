@@ -246,7 +246,7 @@
         });
     }
 
-    function renderMySelection(form, reservations) {
+    function renderMySelection(form, reservations, config) {
         var panel = form.querySelector('.kir-my-selection');
         var list = form.querySelector('.kir-my-selection-list');
         if (!panel || !list) {
@@ -263,6 +263,8 @@
         ul.className = 'kir-my-selection-items';
         reservations.forEach(function (item) {
             var li = document.createElement('li');
+            var label = document.createElement('span');
+            label.className = 'kir-my-selection-label';
             var text = String(item.chapter) + ' skyrius';
             if (item.title) {
                 text += ' — ' + item.title;
@@ -270,7 +272,19 @@
             if (item.congregation) {
                 text += ' (' + item.congregation + ')';
             }
-            li.textContent = text;
+            label.textContent = text;
+            li.appendChild(label);
+
+            // Kiekvieno skyriaus galima atsisakyti atskirai.
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'kir-cancel-selection';
+            button.textContent = (config && config.cancelButton) || 'Atsisakyti';
+            button.setAttribute('aria-label', button.textContent + ': ' + text);
+            button.addEventListener('click', function () {
+                cancelChapter(form, config, item, button);
+            });
+            li.appendChild(button);
             ul.appendChild(li);
         });
         list.appendChild(ul);
@@ -280,7 +294,7 @@
     function loadMySelection(form, config) {
         var token = getOwnerToken();
         if (!token) {
-            renderMySelection(form, []);
+            renderMySelection(form, [], config);
             return Promise.resolve();
         }
 
@@ -295,61 +309,65 @@
             var data = result.json.data || {};
             if (!data.found || !data.reservations || !data.reservations.length) {
                 clearOwnerToken();
-                renderMySelection(form, []);
+                renderMySelection(form, [], config);
                 return;
             }
-            renderMySelection(form, data.reservations);
+            renderMySelection(form, data.reservations, config);
         }).catch(function () {
             // Laikino ryšio sutrikimo atveju naršyklės rakto netriname.
         });
     }
 
-    function cancelMySelection(form, config) {
+    function fillChapter(text, item) {
+        return String(text || '')
+            .split('{chapter}').join(String(item.chapter))
+            .split('{chapter_title}').join(item.title || '');
+    }
+
+    function cancelChapter(form, config, item, button) {
         var token = getOwnerToken();
         if (!token) {
-            renderMySelection(form, []);
+            renderMySelection(form, [], config);
             return;
         }
-        if (!window.confirm(config.cancelConfirm || 'Ar tikrai norite atsisakyti pasirinkimo?')) {
+        if (!window.confirm(fillChapter(config.cancelConfirm || 'Ar tikrai norite atsisakyti {chapter} skyriaus?', item))) {
             return;
         }
 
-        var button = form.querySelector('.kir-cancel-selection');
         var congregationSelect = form.querySelector('.kir-congregation');
-        if (button) {
-            button.disabled = true;
-        }
+        button.disabled = true;
 
         post(config, {
             action: 'kir_cancel_my_reservations',
             nonce: config.nonce,
-            owner_token: token
+            owner_token: token,
+            chapter: String(item.chapter)
         }).then(function (result) {
             if (!result.ok || !result.json.success) {
                 throw new Error((result.json.data && result.json.data.message) || config.invalidMessage);
             }
 
             var data = result.json.data || {};
-            clearOwnerToken();
-            renderMySelection(form, []);
-            setMessage(form, data.message || config.cancelSuccess || '', 'success');
+            var remaining = data.reservations || [];
+            if (!remaining.length) {
+                clearOwnerToken();
+            }
+            renderMySelection(form, remaining, config);
+            setMessage(form, data.message || fillChapter(config.cancelSuccess, item), 'success');
 
             (data.congregations || []).forEach(function (congregation) {
                 markCongregationAvailable(congregationSelect, congregation);
             });
-            (data.released || []).forEach(function (item) {
-                markLocalReserved(config, item.congregation, [item.chapter], false);
+            (data.released || []).forEach(function (released) {
+                markLocalReserved(config, released.congregation, [released.chapter], false);
             });
 
             if (congregationSelect.value) {
                 return loadChapters(form, congregationSelect.value, config);
             }
         }).catch(function (error) {
+            button.disabled = false;
             setMessage(form, error.message || config.invalidMessage, 'error');
-        }).finally(function () {
-            if (button) {
-                button.disabled = false;
-            }
         });
     }
 
@@ -391,6 +409,11 @@
             }
             var data = result.json.data || {};
             replaceLocalChapterData(config, congregation, data.chapters || []);
+            // Vėluojantis atsakymas apie anksčiau pasirinktą bendruomenę neperpiešia
+            // dabar pasirinktos bendruomenės skyrių.
+            if (form.querySelector('.kir-congregation').value !== congregation) {
+                return;
+            }
             updateChapterUi(form, data, congregation, config);
         }).catch(function () {
             // Vietinis sąrašas jau parodytas. Galutinė rezervacija vis tiek tikrinama DB.
@@ -403,19 +426,12 @@
         var congregationSelect = form.querySelector('.kir-congregation');
         var chaptersContainer = form.querySelector('.kir-chapters');
         var submit = form.querySelector('.kir-submit');
-        var cancelButton = form.querySelector('.kir-cancel-selection');
         var normalSubmitText = submit.textContent;
 
         congregationSelect.addEventListener('change', function () {
             setMessage(form, '', '');
             loadChapters(form, congregationSelect.value, config);
         });
-
-        if (cancelButton) {
-            cancelButton.addEventListener('click', function () {
-                cancelMySelection(form, config);
-            });
-        }
 
         form.addEventListener('submit', function (event) {
             event.preventDefault();
