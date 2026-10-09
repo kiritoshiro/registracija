@@ -73,6 +73,19 @@
     display: none;
 }
 
+.kir-status-toggle.is-saving {
+    opacity: 0.6;
+}
+
+.kir-autosave-status {
+    font-weight: 600;
+    margin-left: 8px;
+}
+
+.kir-autosave-status.is-error {
+    color: #b32d2e;
+}
+
 .kir-registrations-table-wrap {
     max-width: 100%;
     overflow-x: auto;
