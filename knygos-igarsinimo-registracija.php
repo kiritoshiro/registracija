@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.2.3
+ * Version: 2.3.0
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,13 +15,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.2.3';
+    const VERSION               = '2.3.0';
     const DB_VERSION            = '1.7.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
     const OPTION_DB_VER         = 'kir_db_version';
     const OPTION_GOOGLE_SHEETS  = 'kir_google_sheets';
     const OPTION_GOOGLE_SHEETS_STATUS = 'kir_google_sheets_status';
+    const OPTION_NOTIFY_EMAIL   = 'kir_notify_email';
+    const DEFAULT_NOTIFY_EMAIL  = 'darius@adventistai.lt';
     const NONCE_ACTION          = 'kir_public_form';
     const SHORTCODE             = 'knygos_igarsinimo_registracija';
     const PLUGIN_SLUG            = 'knygos-igarsinimo-registracija';
@@ -63,6 +65,7 @@ final class KIR_Plugin {
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
         add_action( 'admin_post_kir_export_xlsx', array( $this, 'handle_export' ) );
         add_action( 'admin_post_kir_update_reservations', array( $this, 'handle_update_reservations' ) );
+        add_action( 'wp_ajax_kir_update_reservation_status', array( $this, 'ajax_update_reservation_status' ) );
         add_action( 'admin_post_kir_update_assignments', array( $this, 'handle_update_assignments' ) );
         add_action( 'admin_post_kir_release_reservation', array( $this, 'handle_release_reservation' ) );
         add_action( 'admin_post_kir_sync_google_sheets', array( $this, 'handle_sync_google_sheets' ) );
@@ -776,6 +779,17 @@ final class KIR_Plugin {
                 self::VERSION,
                 true
             );
+            wp_localize_script(
+                'kir-admin',
+                'kirAdmin',
+                array(
+                    'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+                    'nonce'   => wp_create_nonce( 'kir_update_reservation_status' ),
+                    'saving'  => 'Išsaugoma…',
+                    'saved'   => 'Išsaugota.',
+                    'failed'  => 'Pažymėjimo išsaugoti nepavyko. Bandykite dar kartą.',
+                )
+            );
         }
     }
 
@@ -1192,6 +1206,7 @@ final class KIR_Plugin {
         $wpdb->query( 'START TRANSACTION' );
         $inserted_ids = array();
         $failure      = null;
+        $created_at   = current_time( 'mysql' );
 
         foreach ( $chapters as $chapter ) {
             $inserted = $wpdb->insert(
@@ -1202,7 +1217,7 @@ final class KIR_Plugin {
                     'congregation'    => $congregation,
                     'chapter'         => $chapter,
                     'owner_token_hash'=> $owner_token_hash,
-                    'created_at'      => current_time( 'mysql' ),
+                    'created_at'      => $created_at,
                 ),
                 array( '%s', '%s', '%s', '%d', '%s', '%s' )
             );
@@ -1247,6 +1262,7 @@ final class KIR_Plugin {
         // Google Sheets ryšys yra papildomas veiksmas: jei jis laikinai nepasiekiamas,
         // pati WordPress registracija vis tiek lieka sėkminga.
         $this->sync_reservation_ids_to_google_sheets( $inserted_ids );
+        $this->send_registration_notification( $full_name, $email, $congregation, $chapters, $created_at );
 
         $available_now = 0;
         $reserved      = array_flip( $this->get_reserved_chapters() );
@@ -1349,6 +1365,16 @@ final class KIR_Plugin {
         );
 
         register_setting(
+            'kir_texts_group',
+            self::OPTION_NOTIFY_EMAIL,
+            array(
+                'type'              => 'string',
+                'sanitize_callback' => array( $this, 'sanitize_notify_email' ),
+                'default'           => self::DEFAULT_NOTIFY_EMAIL,
+            )
+        );
+
+        register_setting(
             'kir_google_sheets_group',
             self::OPTION_GOOGLE_SHEETS,
             array(
@@ -1378,6 +1404,74 @@ final class KIR_Plugin {
         }
 
         return $clean;
+    }
+
+    /**
+     * Vienas ar keli kableliu atskirti adresai; tuščias laukas išjungia pranešimus.
+     */
+    public function sanitize_notify_email( $input ) {
+        $input     = is_string( $input ) ? wp_unslash( $input ) : '';
+        $addresses = array();
+        $invalid   = false;
+
+        foreach ( explode( ',', $input ) as $part ) {
+            $part = trim( $part );
+            if ( '' === $part ) {
+                continue;
+            }
+            $address = sanitize_email( $part );
+            if ( is_email( $address ) ) {
+                $addresses[] = $address;
+            } else {
+                $invalid = true;
+            }
+        }
+
+        if ( $invalid ) {
+            add_settings_error( self::OPTION_NOTIFY_EMAIL, 'kir_notify_email_invalid', 'Bent vienas pranešimų el. pašto adresas netinkamas ir nebuvo išsaugotas.' );
+        }
+
+        return implode( ', ', array_unique( $addresses ) );
+    }
+
+    private function get_notify_emails() {
+        $value = get_option( self::OPTION_NOTIFY_EMAIL, self::DEFAULT_NOTIFY_EMAIL );
+        return array_values( array_filter( array_map( 'trim', explode( ',', is_string( $value ) ? $value : '' ) ), 'is_email' ) );
+    }
+
+    /**
+     * Papildomas veiksmas po sėkmingos registracijos: nepavykęs laiškas
+     * registracijos neatšaukia.
+     */
+    private function send_registration_notification( $full_name, $email, $congregation, $chapters, $created_at ) {
+        $recipients = $this->get_notify_emails();
+        if ( empty( $recipients ) ) {
+            return;
+        }
+
+        $lines = array(
+            'Nauja knygos „Marijos Sūnaus gyvenimas“ įgarsinimo registracija.',
+            '',
+            'Vardas ir pavardė: ' . $full_name,
+            'El. paštas: ' . $email,
+            'Bendruomenė: ' . $congregation,
+            'Data: ' . $created_at,
+            '',
+            'Skyriai:',
+        );
+        foreach ( $chapters as $chapter ) {
+            $lines[] = '- ' . $chapter . ' skyrius — ' . self::chapter_title( $chapter );
+        }
+        $lines[] = '';
+        $lines[] = 'Visos registracijos: ' . admin_url( 'admin.php?page=kir-registrations' );
+
+        $subject = 'Nauja įgarsinimo registracija: ' . $full_name . ' (' . $congregation . ')';
+        $headers = array( 'Content-Type: text/plain; charset=UTF-8' );
+        if ( is_email( $email ) ) {
+            $headers[] = 'Reply-To: ' . $email;
+        }
+
+        wp_mail( $recipients, $subject, implode( "\n", $lines ), $headers );
     }
 
     public function sanitize_congregation_settings( $input ) {
@@ -1563,6 +1657,7 @@ final class KIR_Plugin {
             <p>
                 <button type="submit" form="kir-reservation-status-form" class="button button-primary">Išsaugoti visus pakeitimus</button>
                 <span class="description">Pažymėjimai išsaugomi automatiškai juos pakeitus. Vardą, el. paštą ir kitus laukus išsaugokite šiuo mygtuku.</span>
+                <span class="kir-autosave-status" role="status" aria-live="polite"></span>
             </p>
             <div class="kir-registrations-table-wrap">
                 <table class="widefat striped kir-registrations-table">
@@ -1613,7 +1708,7 @@ final class KIR_Plugin {
                                 <td>
                                     <label class="kir-status-toggle">
                                         <input form="kir-reservation-status-form" type="hidden" name="reservations[<?php echo esc_attr( (string) $id ); ?>][summary_sent]" value="0" />
-                                        <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) $id ); ?>][summary_sent]" value="1" data-kir-auto-save="1" <?php checked( 1, (int) $row->summary_sent ); ?> />
+                                        <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) $id ); ?>][summary_sent]" value="1" data-kir-auto-save="1" data-kir-id="<?php echo esc_attr( (string) $id ); ?>" data-kir-field="summary_sent" <?php checked( 1, (int) $row->summary_sent ); ?> />
                                         <span class="kir-status-toggle__box" aria-hidden="true"></span>
                                         <span class="kir-status-toggle__state kir-status-toggle__state--yes">Taip</span>
                                         <span class="kir-status-toggle__state kir-status-toggle__state--no">Ne</span>
@@ -1622,7 +1717,7 @@ final class KIR_Plugin {
                                 <td>
                                     <label class="kir-status-toggle">
                                         <input form="kir-reservation-status-form" type="hidden" name="reservations[<?php echo esc_attr( (string) $id ); ?>][audio_sent]" value="0" />
-                                        <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) $id ); ?>][audio_sent]" value="1" data-kir-auto-save="1" <?php checked( 1, (int) $row->audio_sent ); ?> />
+                                        <input form="kir-reservation-status-form" type="checkbox" name="reservations[<?php echo esc_attr( (string) $id ); ?>][audio_sent]" value="1" data-kir-auto-save="1" data-kir-id="<?php echo esc_attr( (string) $id ); ?>" data-kir-field="audio_sent" <?php checked( 1, (int) $row->audio_sent ); ?> />
                                         <span class="kir-status-toggle__box" aria-hidden="true"></span>
                                         <span class="kir-status-toggle__state kir-status-toggle__state--yes">Taip</span>
                                         <span class="kir-status-toggle__state kir-status-toggle__state--no">Ne</span>
@@ -1762,10 +1857,24 @@ final class KIR_Plugin {
         ?>
         <div class="wrap">
             <h1>Formos tekstai</h1>
+            <?php settings_errors( self::OPTION_NOTIFY_EMAIL ); ?>
             <p>Čia galima pakeisti visus pagrindinius lankytojui rodomus formos tekstus. Sėkmės pranešime galima naudoti <code>{chapter}</code>, <code>{chapter_title}</code>, <code>{chapters}</code>, <code>{chapter_titles}</code>, <code>{chapter_list}</code>, <code>{congregation}</code> ir <code>{name}</code>. Knygos ir PDF nuorodoms leidžiami tik <code>http</code> ir <code>https</code> adresai.</p>
 
             <form method="post" action="options.php">
                 <?php settings_fields( 'kir_texts_group' ); ?>
+                <h2>Pranešimai el. paštu</h2>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><label for="kir_notify_email">Pranešti apie naujas registracijas</label></th>
+                            <td>
+                                <input class="regular-text" type="text" id="kir_notify_email" name="<?php echo esc_attr( self::OPTION_NOTIFY_EMAIL ); ?>" value="<?php echo esc_attr( (string) get_option( self::OPTION_NOTIFY_EMAIL, self::DEFAULT_NOTIFY_EMAIL ) ); ?>" aria-describedby="kir_notify_email_help">
+                                <p class="description" id="kir_notify_email_help">Po kiekvienos registracijos šiuo adresu išsiunčiamas laiškas su vardu, el. paštu, bendruomene ir skyriais. Kelis adresus atskirkite kableliu; palikite tuščią, jei laiškų nereikia.</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <h2>Formos tekstai</h2>
                 <table class="form-table" role="presentation">
                     <tbody>
                     <?php foreach ( $fields as $key => $label ) : ?>
@@ -2114,6 +2223,50 @@ final class KIR_Plugin {
         $notice = $failed ? 'update_error' : 'updated';
         wp_safe_redirect( admin_url( 'admin.php?page=kir-registrations&kir_notice=' . $notice ) );
         exit;
+    }
+
+    /**
+     * Vienas būsenos pažymėjimas išsaugomas be puslapio perkrovimo, todėl galima
+     * iš eilės pažymėti kelis ir nė vienas nepasimeta.
+     */
+    public function ajax_update_reservation_status() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Neturite teisės atlikti šio veiksmo.' ), 403 );
+        }
+        if ( ! isset( $_POST['nonce'] ) || ! is_string( $_POST['nonce'] ) || ! check_ajax_referer( 'kir_update_reservation_status', 'nonce', false ) ) {
+            wp_send_json_error( array( 'message' => 'Saugumo patikra nepavyko. Atnaujinkite puslapį.' ), 403 );
+        }
+
+        global $wpdb;
+        $id    = isset( $_POST['id'] ) && is_string( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+        $field = isset( $_POST['field'] ) && is_string( $_POST['field'] ) ? sanitize_key( wp_unslash( $_POST['field'] ) ) : '';
+        $value = isset( $_POST['value'] ) && '1' === $_POST['value'] ? 1 : 0;
+
+        if ( ! $id || ! in_array( $field, array( 'summary_sent', 'audio_sent' ), true ) ) {
+            wp_send_json_error( array( 'message' => 'Netinkama užklausa.' ), 400 );
+        }
+
+        $exists = $wpdb->get_var(
+            $wpdb->prepare( "SELECT id FROM {$this->table_name} WHERE id = %d LIMIT 1", $id ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table is a fixed WP-prefix name; values are prepared, integer-only lists, allowlisted sort identifiers, or literal transaction commands.
+        );
+        if ( ! $exists ) {
+            wp_send_json_error( array( 'message' => 'Registracija neberasta. Atnaujinkite puslapį.' ), 404 );
+        }
+
+        $updated = $wpdb->update( $this->table_name, array( $field => $value ), array( 'id' => $id ), array( '%d' ), array( '%d' ) );
+        if ( false === $updated ) {
+            wp_send_json_error( array( 'message' => 'Registracijos duomenų išsaugoti nepavyko.' ), 500 );
+        }
+
+        $this->sync_reservation_ids_to_google_sheets( array( $id ) );
+
+        wp_send_json_success(
+            array(
+                'id'    => $id,
+                'field' => $field,
+                'value' => $value,
+            )
+        );
     }
 
     public function handle_release_reservation() {
