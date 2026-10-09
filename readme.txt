@@ -2,7 +2,7 @@
 Contributors: custom
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 2.3.0
+Stable tag: 2.4.0
 
 Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsinimo registracijai skirtas WordPress įskiepis.
 
@@ -27,6 +27,12 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 5. Išsaugokite nustatymus ir vieną kartą paleiskite esamų registracijų sinchronizaciją.
 
 Įskiepis į Google Sheets siunčia naujas registracijas, būsenų pakeitimus, atšaukimus ir administratoriaus atlaisvinimus. Jei Google endpoint laikinai nepasiekiamas, vietinė WordPress registracija vis tiek išsaugoma.
+
+== 2.4.0 ==
+- Skiltyje „Jūsų pasirinkimas“ prie kiekvieno skyriaus yra atskiras mygtukas „Atsisakyti“, todėl galima atsisakyti vieno skyriaus, o kiti lieka rezervuoti.
+- Naujas administravimo puslapis „Pranešimai“: el. pašto adresas pranešimams apie naujas registracijas, bandomojo laiško siuntimas ir paskutinio siuntimo būsena su klaidos tekstu.
+- Greitai keičiant bendruomenę, vėluojantis serverio atsakymas nebeparodo ankstesnės bendruomenės skyrių (dėl to anksčiau galėjo pasirodyti „Patikrinkite įvestus duomenis“).
+- Atnaujinimai: GitHub leidimo informacija talpykloje laikoma 15 minučių (anksčiau 6 valandas), todėl naujas leidimas skiltyje Pultas → Atnaujinimai pasirodo greičiau.
 
 == 2.3.0 ==
 - Po kiekvienos registracijos administratoriui išsiunčiamas laiškas su vardu, el. paštu, bendruomene ir pasirinktais skyriais. Adresą (pagal nutylėjimą darius@adventistai.lt) galima pakeisti arba palikti tuščią skiltyje „Formos tekstai“.

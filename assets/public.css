@@ -257,17 +257,33 @@
 }
 
 .kir-my-selection-items {
-    margin: .35rem 0 .85rem 1.2rem;
+    margin: .35rem 0 0;
     padding: 0;
+    list-style: none;
+}
+
+.kir-my-selection-items li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem 1rem;
+    padding: .45rem 0;
 }
 
 .kir-my-selection-items li + li {
-    margin-top: .2rem;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.kir-my-selection-label {
+    flex: 1 1 16rem;
+    min-width: 0;
 }
 
 .kir-cancel-selection {
-    min-height: 40px;
-    padding: .5rem .8rem;
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: .35rem .75rem;
     border: 1px solid currentColor;
     border-radius: 4px;
     background: transparent;
