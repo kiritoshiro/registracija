@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.4.0
+ * Version: 2.4.1
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.4.0';
+    const VERSION               = '2.4.1';
     const DB_VERSION            = '1.8.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
@@ -750,17 +750,33 @@ final class KIR_Plugin {
         return $this->google_sheets_request( array( 'action' => 'delete', 'ids' => $ids ) );
     }
 
+    /**
+     * URL of an asset under assets/: the minified copy (written by
+     * scripts/minify-assets.mjs and kept in step by CI), or the readable file
+     * under SCRIPT_DEBUG or when the copy is missing.
+     *
+     * @param string $file File name under assets/, e.g. "public.js".
+     * @return string
+     */
+    private function asset_url( $file ) {
+        $min = preg_replace( '/\.(js|css)$/', '.min.$1', $file );
+        if ( ! ( defined( 'SCRIPT_DEBUG' ) && SCRIPT_DEBUG ) && is_readable( plugin_dir_path( __FILE__ ) . 'assets/' . $min ) ) {
+            $file = $min;
+        }
+        return plugins_url( 'assets/' . $file, __FILE__ );
+    }
+
     public function register_public_assets() {
         wp_register_style(
             'kir-public',
-            plugins_url( 'assets/public.css', __FILE__ ),
+            $this->asset_url( 'public.css' ),
             array(),
             self::VERSION
         );
 
         wp_register_script(
             'kir-public',
-            plugins_url( 'assets/public.js', __FILE__ ),
+            $this->asset_url( 'public.js' ),
             array(),
             self::VERSION,
             true
@@ -775,7 +791,7 @@ final class KIR_Plugin {
 
         wp_enqueue_style(
             'kir-admin',
-            plugins_url( 'assets/admin.css', __FILE__ ),
+            $this->asset_url( 'admin.css' ),
             array(),
             self::VERSION
         );
@@ -783,7 +799,7 @@ final class KIR_Plugin {
         if ( 'kir-registrations' === $page ) {
             wp_enqueue_script(
                 'kir-admin',
-                plugins_url( 'assets/admin.js', __FILE__ ),
+                $this->asset_url( 'admin.js' ),
                 array(),
                 self::VERSION,
                 true

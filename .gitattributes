@@ -4,3 +4,14 @@
 /docs export-ignore
 /.lychee.toml export-ignore
 /.gitattributes export-ignore
+# Build tooling for the minified assets: development only, not in the ZIP.
+/package.json export-ignore
+/package-lock.json export-ignore
+/scripts export-ignore
+/node_modules export-ignore
+/.gitignore export-ignore
+
+# Written by scripts/minify-assets.mjs from the readable sources (CI checks
+# they are up to date); collapsed in diffs and left out of language stats.
+/assets/*.min.js linguist-generated=true
+/assets/*.min.css linguist-generated=true

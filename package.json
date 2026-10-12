@@ -1,0 +1,9 @@
+{
+  "name": "knygos-igarsinimo-registracija-build",
+  "private": true,
+  "description": "Development tooling only (writes the committed assets/*.min.js and *.min.css). Nothing here ships in the plugin.",
+  "devDependencies": {
+    "@swc/core": "1.16.18",
+    "lightningcss": "1.27.0"
+  }
+}
