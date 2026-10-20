@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.4.1
+ * Version: 2.4.2
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.4.1';
+    const VERSION               = '2.4.2';
     const DB_VERSION            = '1.8.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
@@ -25,6 +25,7 @@ final class KIR_Plugin {
     const OPTION_NOTIFY_EMAIL   = 'kir_notify_email';
     const DEFAULT_NOTIFY_EMAIL  = 'darius@adventistai.lt';
     const OPTION_NOTIFY_STATUS  = 'kir_notify_status';
+    const OPTION_NOTIFY_FOOTER  = 'kir_notify_footer';
     const NONCE_ACTION          = 'kir_public_form';
     const SHORTCODE             = 'knygos_igarsinimo_registracija';
     const PLUGIN_SLUG            = 'knygos-igarsinimo-registracija';
@@ -650,7 +651,7 @@ final class KIR_Plugin {
         $response           = wp_remote_post(
             $settings['endpoint_url'],
             array(
-                'timeout'     => 5,
+                'timeout'     => 30,
                 'redirection' => 3,
                 'headers'     => array(
                     'Accept'     => 'application/json',
@@ -1433,6 +1434,16 @@ final class KIR_Plugin {
         );
 
         register_setting(
+            'kir_notify_group',
+            self::OPTION_NOTIFY_FOOTER,
+            array(
+                'type'              => 'string',
+                'sanitize_callback' => array( $this, 'sanitize_notify_footer' ),
+                'default'           => 'Visos registracijos: ' . admin_url( 'admin.php?page=kir-registrations' ),
+            )
+        );
+
+        register_setting(
             'kir_google_sheets_group',
             self::OPTION_GOOGLE_SHEETS,
             array(
@@ -1492,6 +1503,20 @@ final class KIR_Plugin {
         return implode( ', ', array_unique( $addresses ) );
     }
 
+    public function sanitize_notify_footer( $input ) {
+        return is_string( $input ) ? sanitize_textarea_field( $input ) : '';
+    }
+
+    private function get_notify_footer() {
+        $value = get_option( self::OPTION_NOTIFY_FOOTER, 'Visos registracijos: ' . admin_url( 'admin.php?page=kir-registrations' ) );
+        return is_string( $value ) ? $value : '';
+    }
+
+    private function append_notify_footer( $message ) {
+        $footer = $this->get_notify_footer();
+        return '' !== trim( $footer ) ? $message . "\n\n" . $footer : $message;
+    }
+
     private function get_notify_emails() {
         $value = get_option( self::OPTION_NOTIFY_EMAIL, self::DEFAULT_NOTIFY_EMAIL );
         return array_values( array_filter( array_map( 'trim', explode( ',', is_string( $value ) ? $value : '' ) ), 'is_email' ) );
@@ -1520,8 +1545,7 @@ final class KIR_Plugin {
         foreach ( $chapters as $chapter ) {
             $lines[] = '- ' . $chapter . ' skyrius — ' . self::chapter_title( $chapter );
         }
-        $lines[] = '';
-        $lines[] = 'Visos registracijos: ' . admin_url( 'admin.php?page=kir-registrations' );
+
 
         $subject = 'Nauja įgarsinimo registracija: ' . $full_name . ' (' . $congregation . ')';
         $headers = array( 'Content-Type: text/plain; charset=UTF-8' );
@@ -1529,7 +1553,7 @@ final class KIR_Plugin {
             $headers[] = 'Reply-To: ' . $email;
         }
 
-        $this->deliver_notification( $recipients, $subject, implode( "\n", $lines ), $headers );
+        $this->deliver_notification( $recipients, $subject, $this->append_notify_footer( implode( "\n", $lines ) ), $headers );
     }
 
     /**
@@ -1578,7 +1602,7 @@ final class KIR_Plugin {
         $sent = $this->deliver_notification(
             $recipients,
             'Bandomasis laiškas: įgarsinimo registracijos pranešimai',
-            'Tai bandomasis laiškas iš svetainės ' . home_url( '/' ) . ".\n\nJei jį gavote, pranešimai apie naujas registracijas ateis šiuo adresu.",
+            $this->append_notify_footer( 'Tai bandomasis laiškas iš svetainės ' . home_url( '/' ) . ".\n\nJei jį gavote, pranešimai apie naujas registracijas ateis šiuo adresu." ),
             array( 'Content-Type: text/plain; charset=UTF-8' )
         );
 
@@ -1956,6 +1980,13 @@ final class KIR_Plugin {
                             <td>
                                 <input class="regular-text" type="text" id="kir_notify_email" name="<?php echo esc_attr( self::OPTION_NOTIFY_EMAIL ); ?>" value="<?php echo esc_attr( (string) get_option( self::OPTION_NOTIFY_EMAIL, self::DEFAULT_NOTIFY_EMAIL ) ); ?>" aria-describedby="kir_notify_email_help">
                                 <p class="description" id="kir_notify_email_help">Po kiekvienos registracijos šiuo adresu išsiunčiamas laiškas su vardu, el. paštu, bendruomene ir skyriais. Kelis adresus atskirkite kableliu; palikite tuščią, jei laiškų nereikia.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="kir_notify_footer">Papildomas laiško tekstas</label></th>
+                            <td>
+                                <textarea class="large-text" rows="5" id="kir_notify_footer" name="<?php echo esc_attr( self::OPTION_NOTIFY_FOOTER ); ?>" aria-describedby="kir_notify_footer_help"><?php echo esc_textarea( $this->get_notify_footer() ); ?></textarea>
+                                <p class="description" id="kir_notify_footer_help">Tekstas pridedamas registracijos ir bandomojo laiško pabaigoje. Galite įrašyti Google Sheets nuorodą, paaiškinimus ar kelias eilutes. Naudokite paprastą tekstą ir pilnus URL; HTML nepalaikomas. Palikus tuščią, papildomas tekstas nesiunčiamas. Prieš siųsdami bandomąjį laišką išsaugokite pakeitimus.</p>
                             </td>
                         </tr>
                     </tbody>
