@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Knygos įgarsinimo registracija
  * Description: Bendruomenių narių registracija knygos skyrių įgarsinimui su rezervacijomis, administravimo lentele ir Excel eksportu.
- * Version: 2.4.1
+ * Version: 2.4.2
  * Author: Lithuania Conference
  * Requires at least: 6.2
  * Requires PHP: 7.4
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class KIR_Plugin {
-    const VERSION               = '2.4.1';
+    const VERSION               = '2.4.2';
     const DB_VERSION            = '1.8.0';
     const OPTION_TEXTS          = 'kir_texts';
     const OPTION_CONGREGATIONS  = 'kir_congregations';
@@ -651,7 +651,7 @@ final class KIR_Plugin {
         $response           = wp_remote_post(
             $settings['endpoint_url'],
             array(
-                'timeout'     => 5,
+                'timeout'     => 30,
                 'redirection' => 3,
                 'headers'     => array(
                     'Accept'     => 'application/json',
