@@ -28,6 +28,10 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 
 Įskiepis į Google Sheets siunčia naujas registracijas, būsenų pakeitimus, atšaukimus ir administratoriaus atlaisvinimus. Jei Google endpoint laikinai nepasiekiamas, vietinė WordPress registracija vis tiek išsaugoma.
 
+== Neišleista ==
+- Saugumas: į Google Sheets siunčiami lankytojo įvesti laukai (vardas ir pavardė, el. paštas, bendruomenė), prasidedantys =, +, -, @, tabuliacija ar CR, gauna priekinį apostrofą, todėl lentelė jų nevykdo kaip formulės, o išsaugo kaip tekstą. Ta pati apsauga taikoma `google-apps-script/Code.gs` (pakartotinai apostrofo nededa) ir CSV eksportui, kuriame dabar tikrinama ir tabuliacija bei CR.
+- Atnaujinus: vieną kartą paspauskite „Sinchronizuoti visas registracijas dabar“, kad jau lentelėje esančios eilutės būtų perrašytos saugiai. Jei norite apsaugos ir pačiame Apps Script, iš naujo įdiekite `google-apps-script/Code.gs` (Deploy → Manage deployments → nauja versija); papildomas apostrofas nebus pridėtas.
+
 == 2.4.2 ==
 - Skiltyje „Pranešimai“ galima redaguoti papildomą registracijos laiško tekstą: įrašyti Google Sheets nuorodą ar kitą informaciją. Tekstas pridedamas ir prie bandomojo laiško; tuščias laukas jį išjungia.
 - Google Sheets užklausos laukimo laikas pailgintas nuo 5 iki 30 sekundžių.

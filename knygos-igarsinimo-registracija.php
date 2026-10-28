@@ -680,6 +680,19 @@ final class KIR_Plugin {
         return true;
     }
 
+    /**
+     * Apsauga nuo formulės įterpimo į Google Sheets ir CSV/Excel: lankytojo įvesta
+     * reikšmė, prasidedanti =, +, -, @, tabuliacija ar CR, gauna priekinį
+     * apostrofą ir išsaugoma kaip tekstas.
+     */
+    private static function spreadsheet_safe_text( $value ) {
+        $value = (string) $value;
+        if ( preg_match( '/^[=+\-@\t\r]/', $value ) ) {
+            $value = "'" . $value;
+        }
+        return $value;
+    }
+
     private function reservation_to_google_sheet_row( $row ) {
         $get = static function ( $key ) use ( $row ) {
             if ( is_object( $row ) && isset( $row->{$key} ) ) {
@@ -695,9 +708,9 @@ final class KIR_Plugin {
         return array(
             'id'            => absint( $get( 'id' ) ),
             'created_at'    => (string) $get( 'created_at' ),
-            'full_name'     => (string) $get( 'full_name' ),
-            'email'         => (string) $get( 'email' ),
-            'congregation'  => (string) $get( 'congregation' ),
+            'full_name'     => self::spreadsheet_safe_text( $get( 'full_name' ) ),
+            'email'         => self::spreadsheet_safe_text( $get( 'email' ) ),
+            'congregation'  => self::spreadsheet_safe_text( $get( 'congregation' ) ),
             'chapter'       => $chapter,
             'chapter_title' => self::chapter_title( $chapter ),
             'summary_sent'  => ! empty( $get( 'summary_sent' ) ) ? 'Taip' : 'Ne',
@@ -2523,12 +2536,8 @@ final class KIR_Plugin {
         foreach ( $data as $row ) {
             $safe_row = array();
             foreach ( $row as $cell ) {
-                $cell = (string) $cell;
                 // Apsauga nuo CSV/Excel formulės įterpimo per vartotojo įvestus laukus.
-                if ( preg_match( '/^[=+\-@]/u', $cell ) ) {
-                    $cell = "'" . $cell;
-                }
-                $safe_row[] = $cell;
+                $safe_row[] = self::spreadsheet_safe_text( $cell );
             }
             fputcsv( $out, $safe_row, ';' );
         }
