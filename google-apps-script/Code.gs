@@ -142,9 +142,9 @@ function upsertRow_(sheet, row) {
   const values = [[
     String(row.id),
     row.created_at || '',
-    row.full_name || '',
-    row.email || '',
-    row.congregation || '',
+    asText_(row.full_name || ''),
+    asText_(row.email || ''),
+    asText_(row.congregation || ''),
     row.chapter || '',
     row.chapter_title || '',
     row.summary_sent || 'Ne',
@@ -158,6 +158,14 @@ function upsertRow_(sheet, row) {
   } else {
     sheet.getRange(sheet.getLastRow() + 1, 1, 1, HEADERS.length).setValues(values);
   }
+}
+
+// Visitor-entered text starting with =, +, -, @, tab or CR could run as a
+// formula. A leading apostrophe makes Sheets store it as plain text; values
+// that already start with an apostrophe (escaped by WordPress) stay as they are.
+function asText_(value) {
+  const text = String(value);
+  return /^[=+\-@\t\r]/.test(text) ? "'" + text : text;
 }
 
 function findRowById_(sheet, id) {
