@@ -2,7 +2,7 @@
 Contributors: custom
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 2.4.2
+Stable tag: 2.5.0
 
 Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsinimo registracijai skirtas WordPress įskiepis.
 
@@ -28,7 +28,7 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 
 Įskiepis į Google Sheets siunčia naujas registracijas, būsenų pakeitimus, atšaukimus ir administratoriaus atlaisvinimus. Jei Google endpoint laikinai nepasiekiamas, vietinė WordPress registracija vis tiek išsaugoma.
 
-== Neišleista ==
+== 2.5.0 ==
 - Saugumas: į Google Sheets siunčiami lankytojo įvesti laukai (vardas ir pavardė, el. paštas, bendruomenė), prasidedantys =, +, -, @, tabuliacija ar CR, gauna priekinį apostrofą, todėl lentelė jų nevykdo kaip formulės, o išsaugo kaip tekstą. Ta pati apsauga taikoma `google-apps-script/Code.gs` (pakartotinai apostrofo nededa) ir CSV eksportui, kuriame dabar tikrinama ir tabuliacija bei CR.
 - Atnaujinus: vieną kartą paspauskite „Sinchronizuoti visas registracijas dabar“, kad jau lentelėje esančios eilutės būtų perrašytos saugiai. Jei norite apsaugos ir pačiame Apps Script, iš naujo įdiekite `google-apps-script/Code.gs` (Deploy → Manage deployments → nauja versija); papildomas apostrofas nebus pridėtas.
 - Saugumas: viešoji registracijos forma riboja užklausų skaičių. Pagal nutylėjimą iš vieno IP adreso priimama iki 8 registracijų per 10 minučių ir iki 24 per valandą, tam pačiam el. pašto adresui – iki 4 per valandą, o vienu kartu galima pasirinkti ne daugiau kaip 5 skyrius. Viršijus ribą rodoma „Per trumpą laiką gauta per daug registracijų. Pabandykite vėliau.“ (HTTP 429); tokia užklausa nieko neįrašo, nesiunčia pranešimo laiško ir nesikreipia į Google Sheets. IP imamas tik iš REMOTE_ADDR (X-Forwarded-For nepasitikima), IPv6 sutraukiamas iki /64, o laikinuosiuose įrašuose (transients) saugomos tik druskintos IP ir el. pašto maišos. Administratoriams (manage_options) ribos netaikomos. Ribas galima keisti filtru `kir_public_rate_limits` (raktai `ip_short_limit`, `ip_short_window`, `ip_long_limit`, `ip_long_window`, `email_limit`, `email_window`, `max_chapters`; langai sekundėmis, 0 išjungia ribą).
