@@ -1212,6 +1212,119 @@ final class KIR_Plugin {
         );
     }
 
+    /**
+     * Viešos formos ribos. 0 išjungia atitinkamą ribą. Keičiama filtru
+     * `kir_public_rate_limits`; laiko langai nurodomi sekundėmis.
+     */
+    private function get_public_rate_limits() {
+        $defaults = array(
+            'ip_short_limit'   => 8,
+            'ip_short_window'  => 10 * MINUTE_IN_SECONDS,
+            'ip_long_limit'    => 24,
+            'ip_long_window'   => HOUR_IN_SECONDS,
+            'email_limit'      => 4,
+            'email_window'     => HOUR_IN_SECONDS,
+            'max_chapters'     => 5,
+        );
+
+        $limits = apply_filters( 'kir_public_rate_limits', $defaults );
+        if ( ! is_array( $limits ) ) {
+            $limits = array();
+        }
+
+        $clean = array();
+        foreach ( $defaults as $key => $default ) {
+            $clean[ $key ] = isset( $limits[ $key ] ) && is_numeric( $limits[ $key ] ) ? absint( $limits[ $key ] ) : $default;
+        }
+        return $clean;
+    }
+
+    /**
+     * Lankytojo IP tik iš REMOTE_ADDR: serverio nginx jį nustato pagal
+     * Cloudflare CF-Connecting-IP, o užklausos X-Forwarded-For nepatikimas.
+     * IPv6 adresai sutraukiami iki /64, nes vienas klientas paprastai turi visą /64.
+     */
+    private function rate_limit_client_key() {
+        $remote = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+        if ( ! filter_var( $remote, FILTER_VALIDATE_IP ) ) {
+            return '';
+        }
+
+        if ( filter_var( $remote, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+            $packed = inet_pton( $remote );
+            if ( false !== $packed && 16 === strlen( $packed ) ) {
+                $remote = bin2hex( substr( $packed, 0, 8 ) ) . '::/64';
+            }
+        }
+
+        // Saugoma tik druskinta maiša, ne pats IP adresas.
+        return wp_hash( 'kir-ip|' . $remote );
+    }
+
+    private function rate_limit_transient_key( $bucket, $hash ) {
+        return 'kir_rl_' . $bucket . '_' . substr( $hash, 0, 32 );
+    }
+
+    private function rate_limit_count( $bucket, $hash ) {
+        $data = get_transient( $this->rate_limit_transient_key( $bucket, $hash ) );
+        if ( ! is_array( $data ) || ! isset( $data['count'], $data['expires'] ) || (int) $data['expires'] <= time() ) {
+            return 0;
+        }
+        return (int) $data['count'];
+    }
+
+    /**
+     * Fiksuotas langas: skaičiuojama nuo pirmos užklausos, galiojimo pabaiga nesislenka.
+     */
+    private function rate_limit_increment( $bucket, $hash, $window ) {
+        $key  = $this->rate_limit_transient_key( $bucket, $hash );
+        $now  = time();
+        $data = get_transient( $key );
+        if ( ! is_array( $data ) || ! isset( $data['count'], $data['expires'] ) || (int) $data['expires'] <= $now ) {
+            $data = array(
+                'count'   => 0,
+                'expires' => $now + $window,
+            );
+        }
+        $data['count'] = (int) $data['count'] + 1;
+        set_transient( $key, $data, max( 1, (int) $data['expires'] - $now ) );
+    }
+
+    /**
+     * Grąžina sąrašą [kibiras, maiša, langas] ribų, kurios taikomos šiai užklausai,
+     * arba false, jei kuri nors riba jau pasiekta.
+     */
+    private function check_public_rate_limits( $email, $limits ) {
+        $buckets = array();
+
+        $ip_hash = $this->rate_limit_client_key();
+        if ( '' !== $ip_hash ) {
+            $buckets[] = array( 'ip10', $ip_hash, $limits['ip_short_limit'], $limits['ip_short_window'] );
+            $buckets[] = array( 'iph', $ip_hash, $limits['ip_long_limit'], $limits['ip_long_window'] );
+        }
+        $buckets[] = array( 'em', wp_hash( 'kir-email|' . strtolower( $email ) ), $limits['email_limit'], $limits['email_window'] );
+
+        $active = array();
+        foreach ( $buckets as $bucket ) {
+            list( $name, $hash, $limit, $window ) = $bucket;
+            if ( $limit < 1 || $window < 1 ) {
+                continue;
+            }
+            if ( $this->rate_limit_count( $name, $hash ) >= $limit ) {
+                return false;
+            }
+            $active[] = array( $name, $hash, $window );
+        }
+        return $active;
+    }
+
+    private static function chapter_count_phrase( $count ) {
+        $count = (int) $count;
+        $last  = $count % 10;
+        $teen  = $count % 100 >= 11 && $count % 100 <= 19;
+        return $count . ' ' . ( ! $teen && $last >= 2 ? 'skyrius' : 'skyrių' );
+    }
+
     public function ajax_submit_reservation() {
         global $wpdb;
 
@@ -1261,6 +1374,37 @@ final class KIR_Plugin {
         foreach ( $chapters as $chapter ) {
             if ( ! in_array( $chapter, $congregations[ $congregation ], true ) ) {
                 wp_send_json_error( array( 'message' => $texts['invalid_message'] ), 400 );
+            }
+        }
+
+        // Ribos taikomos tik viešai formai; administratoriai jų neturi.
+        if ( ! current_user_can( 'manage_options' ) ) {
+            $limits = $this->get_public_rate_limits();
+
+            if ( $limits['max_chapters'] > 0 && count( $chapters ) > $limits['max_chapters'] ) {
+                wp_send_json_error(
+                    array(
+                        'message' => 'Vienu kartu galima pasirinkti ne daugiau kaip ' . self::chapter_count_phrase( $limits['max_chapters'] ) . '.',
+                        'code'    => 'too_many_chapters',
+                    ),
+                    400
+                );
+            }
+
+            $rate_buckets = $this->check_public_rate_limits( $email, $limits );
+            if ( false === $rate_buckets ) {
+                wp_send_json_error(
+                    array(
+                        'message' => 'Per trumpą laiką gauta per daug registracijų. Pabandykite vėliau.',
+                        'code'    => 'rate_limited',
+                    ),
+                    429
+                );
+            }
+
+            // Skaičiuojamas kiekvienas bandymas, pasiekęs duomenų bazę, net jei skyrių ką tik užėmė kitas.
+            foreach ( $rate_buckets as $bucket ) {
+                $this->rate_limit_increment( $bucket[0], $bucket[1], $bucket[2] );
             }
         }
 
