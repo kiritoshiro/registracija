@@ -669,7 +669,7 @@ final class KIR_Plugin {
         if ( ! is_wp_error( $response ) && in_array( (int) wp_remote_retrieve_response_code( $response ), array( 301, 302, 303 ), true ) ) {
             $location = self::sheets_result_url( $settings['endpoint_url'], wp_remote_retrieve_header( $response, 'location' ) );
             if ( '' !== $location ) {
-                $response = wp_remote_get(
+                $response = wp_safe_remote_get(
                     $location,
                     array(
                         'timeout'     => 30,
@@ -689,7 +689,7 @@ final class KIR_Plugin {
         $raw  = (string) wp_remote_retrieve_body( $response );
         $body = json_decode( $raw, true );
         if ( $code < 200 || $code >= 300 || ! is_array( $body ) || empty( $body['ok'] ) ) {
-            $message = is_array( $body ) && ! empty( $body['message'] ) ? $body['message'] : self::describe_unexpected_sheets_response( $response, $code, $raw );
+            $message = is_array( $body ) && ! empty( $body['message'] ) ? $body['message'] : self::describe_unexpected_sheets_response( $response, $code, $raw, (string) $settings['secret'] );
             $this->set_google_sheets_status( 'error', 'Google Sheets sinchronizacija nepavyko: ' . $message );
             return false;
         }
@@ -699,8 +699,9 @@ final class KIR_Plugin {
     }
 
     /**
-     * Apps Script rezultato adresas iš peradresavimo „Location“ antraštės. Tik https;
-     * santykinis adresas papildomas endpoint'o domenu. Netinkamas adresas – ''.
+     * Apps Script rezultato adresas iš peradresavimo „Location“ antraštės: tik https
+     * ir tik Google domenai (rezultatas arba prisijungimo puslapis); santykinis adresas
+     * papildomas endpoint'o domenu. Netinkamas adresas – ''.
      */
     private static function sheets_result_url( $endpoint_url, $location ) {
         if ( is_array( $location ) ) {
@@ -718,20 +719,31 @@ final class KIR_Plugin {
             $location = 'https://' . $host . $location;
         }
 
-        return 'https' === wp_parse_url( $location, PHP_URL_SCHEME ) ? $location : '';
+        $allowed_hosts = array( 'script.googleusercontent.com', 'script.google.com', 'accounts.google.com' );
+        $host          = strtolower( (string) wp_parse_url( $location, PHP_URL_HOST ) );
+
+        return 'https' === wp_parse_url( $location, PHP_URL_SCHEME ) && in_array( $host, $allowed_hosts, true ) ? $location : '';
     }
 
     /**
      * Ne JSON atsakymas (dažniausiai Google HTML puslapis): HTTP kodas, galutinis
      * adresas ir trumpa teksto ištrauka, kad būtų matyti tikroji priežastis.
      */
-    private static function describe_unexpected_sheets_response( $response, $code, $raw ) {
+    private static function describe_unexpected_sheets_response( $response, $code, $raw, $secret = '' ) {
+        // Atsakymas gali pakartoti užklausą su tokenu; jis negali patekti į išsaugotą būseną.
+        if ( '' !== $secret ) {
+            $raw = str_replace( array( $secret, rawurlencode( $secret ), wp_json_encode( $secret ) ), '[tokenas]', $raw );
+        }
+
         $host = '';
         if ( isset( $response['http_response'] ) && is_object( $response['http_response'] ) && method_exists( $response['http_response'], 'get_response_object' ) ) {
             $host = (string) wp_parse_url( (string) $response['http_response']->get_response_object()->url, PHP_URL_HOST );
         }
 
         $text = trim( preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( str_replace( '<', ' <', $raw ) ), ENT_QUOTES, 'UTF-8' ) ) );
+        if ( '' !== $secret ) {
+            $text = str_replace( $secret, '[tokenas]', $text );
+        }
 
         $message = sprintf( 'Nežinomas Apps Script atsakymas (HTTP %d%s).', $code, '' !== $host ? ', ' . $host : '' );
         if ( 'accounts.google.com' === $host || false !== stripos( $text, 'Authorization is required' ) ) {

@@ -52,6 +52,12 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
           node scripts/minify-assets.mjs --check
+      # Stubbed regression test of the Google Sheets request (Apps Script
+      # POST -> 302 -> GET, Google-only redirect hosts, token redaction). Uses
+      # the runner's preinstalled PHP; no WordPress needed.
+      - name: Google Sheets request regression test
+        if: ${{ !cancelled() }}
+        run: php tests/sheets-redirect-test.php knygos-igarsinimo-registracija.php
 
   playground:
     name: Playground smoke test (PHP ${{ matrix.php }})
