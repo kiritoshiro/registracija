@@ -28,6 +28,10 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 
 Įskiepis į Google Sheets siunčia naujas registracijas, būsenų pakeitimus, atšaukimus ir administratoriaus atlaisvinimus. Jei Google endpoint laikinai nepasiekiamas, vietinė WordPress registracija vis tiek išsaugoma.
 
+== Neišleista ==
+- Pataisyta Google Sheets sinchronizacija („Nežinomas Apps Script atsakymas“ nuo 2026-10-30). Apps Script į POST užklausą atsako peradresavimu į script.googleusercontent.com, o WordPress tą peradresavimą kartojo su POST, todėl Google grąžindavo 400. Dabar POST siunčiamas be automatinio peradresavimo, o rezultatas atsisiunčiamas GET užklausa. Atnaujinus vieną kartą paspauskite „Sinchronizuoti visas registracijas dabar“.
+- Google Sheets: kai Apps Script grąžina ne JSON (pvz., Google prisijungimo, autorizacijos ar klaidos puslapį), būsenos eilutėje vietoj „Nežinomas Apps Script atsakymas“ rodomas HTTP kodas, galutinis adresas, trumpa atsakymo ištrauka ir, jei reikia, patarimas dėl prieigos „Anyone“ bei autorizacijos.
+
 == 2.5.0 ==
 - Saugumas: į Google Sheets siunčiami lankytojo įvesti laukai (vardas ir pavardė, el. paštas, bendruomenė), prasidedantys =, +, -, @, tabuliacija ar CR, gauna priekinį apostrofą, todėl lentelė jų nevykdo kaip formulės, o išsaugo kaip tekstą. Ta pati apsauga taikoma `google-apps-script/Code.gs` (pakartotinai apostrofo nededa) ir CSV eksportui, kuriame dabar tikrinama ir tabuliacija bei CR.
 - Atnaujinus: vieną kartą paspauskite „Sinchronizuoti visas registracijas dabar“, kad jau lentelėje esančios eilutės būtų perrašytos saugiai. Jei norite apsaugos ir pačiame Apps Script, iš naujo įdiekite `google-apps-script/Code.gs` (Deploy → Manage deployments → nauja versija); papildomas apostrofas nebus pridėtas.
