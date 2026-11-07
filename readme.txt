@@ -2,7 +2,7 @@
 Contributors: custom
 Requires at least: 6.2
 Requires PHP: 7.4
-Stable tag: 2.5.0
+Stable tag: 2.5.1
 
 Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsinimo registracijai skirtas WordPress įskiepis.
 
@@ -28,7 +28,7 @@ Vienkartinei Elenos Vait knygos „Marijos Sūnaus gyvenimas“ skyrių įgarsin
 
 Įskiepis į Google Sheets siunčia naujas registracijas, būsenų pakeitimus, atšaukimus ir administratoriaus atlaisvinimus. Jei Google endpoint laikinai nepasiekiamas, vietinė WordPress registracija vis tiek išsaugoma.
 
-== Neišleista ==
+== 2.5.1 ==
 - Pataisyta Google Sheets sinchronizacija („Nežinomas Apps Script atsakymas“ nuo 2026-10-30). Apps Script į POST užklausą atsako peradresavimu į script.googleusercontent.com, o WordPress tą peradresavimą kartojo su POST, todėl Google grąžindavo 400. Dabar POST siunčiamas be automatinio peradresavimo, o rezultatas atsisiunčiamas GET užklausa tik iš Google domenų (script.googleusercontent.com, script.google.com, accounts.google.com) per WordPress saugų HTTP klientą; tokenas į GET užklausą ir į išsaugotą klaidos tekstą nepatenka. Atnaujinus vieną kartą paspauskite „Sinchronizuoti visas registracijas dabar“.
 - Google Sheets: kai Apps Script grąžina ne JSON (pvz., Google prisijungimo, autorizacijos ar klaidos puslapį), būsenos eilutėje vietoj „Nežinomas Apps Script atsakymas“ rodomas HTTP kodas, galutinis domenas, trumpa atsakymo ištrauka ir, jei reikia, patarimas dėl prieigos „Anyone“ bei autorizacijos.
 
